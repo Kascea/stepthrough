@@ -1,0 +1,151 @@
+name: ExamplePipeline
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  buildConfiguration: Release
+  appVersion: 1.0.0
+  testResultsDir: $(System.DefaultWorkingDirectory)/test-results
+
+stages:
+  - stage: Validate
+    displayName: Validate & Lint
+    jobs:
+      - job: Lint
+        displayName: Lint and format check
+        steps:
+          - checkout: self
+            clean: true
+            displayName: Checkout source
+
+          - script: echo "Installing linters..."
+            displayName: Install dependencies
+
+          - script: |
+              echo "Running linter..."
+              echo "No lint errors found."
+            displayName: Run linter
+
+          - script: echo "Checking code formatting..."
+            displayName: Check formatting
+
+  - stage: Build
+    displayName: Build
+    dependsOn: Validate
+    jobs:
+      - job: BuildApp
+        displayName: Build application
+        steps:
+          - checkout: self
+            displayName: Checkout source
+
+          - task: UseDotNet@2
+            displayName: Use .NET 8
+            inputs:
+              version: "8.x"
+
+          - script: |
+              echo "Restoring packages..."
+              echo "dotnet restore"
+            displayName: Restore packages
+
+          - script: |
+              echo "Building in $(buildConfiguration) mode..."
+              echo "dotnet build --configuration $(buildConfiguration)"
+            displayName: Build solution
+
+          - script: |
+              echo "Publishing artifacts..."
+              mkdir -p $(Build.ArtifactStagingDirectory)/app
+              echo "version=$(appVersion)" > $(Build.ArtifactStagingDirectory)/app/version.txt
+            displayName: Publish artifacts
+
+          - task: PublishBuildArtifacts@1
+            displayName: Upload build artifacts
+            inputs:
+              pathToPublish: $(Build.ArtifactStagingDirectory)
+              artifactName: drop
+
+  - stage: Test
+    displayName: Test
+    dependsOn: Build
+    jobs:
+      - job: UnitTests
+        displayName: Unit tests
+        steps:
+          - checkout: self
+            displayName: Checkout source
+
+          - script: |
+              echo "Running unit tests..."
+              mkdir -p $(testResultsDir)
+              echo "Tests passed: 42, Failed: 0" > $(testResultsDir)/results.txt
+              echo "All unit tests passed!"
+            displayName: Run unit tests
+
+          - script: |
+              echo "Computing code coverage..."
+              echo "Coverage: 87%"
+            displayName: Calculate coverage
+
+          - task: PublishTestResults@2
+            displayName: Publish test results
+            inputs:
+              testResultsFormat: JUnit
+              testResultsFiles: "**/*.xml"
+              searchFolder: $(testResultsDir)
+
+      - job: IntegrationTests
+        displayName: Integration tests
+        dependsOn: UnitTests
+        steps:
+          - script: |
+              echo "Starting services for integration tests..."
+              echo "docker compose up -d"
+            displayName: Start dependencies
+
+          - script: |
+              echo "Running integration tests..."
+              echo "All integration tests passed!"
+            displayName: Run integration tests
+
+          - script: |
+              echo "Tearing down services..."
+              echo "docker compose down"
+            displayName: Stop dependencies
+            continueOnError: true
+
+  - stage: Deploy
+    displayName: Deploy to Staging
+    dependsOn: Test
+    jobs:
+      - deployment: DeployStaging
+        displayName: Deploy to staging environment
+        environment: staging
+        steps:
+          - script: |
+              echo "Downloading artifacts..."
+              echo "Deploying version $(appVersion) to staging..."
+            displayName: Deploy application
+
+          - script: |
+              echo "Running smoke tests against staging..."
+              echo "Smoke tests passed!"
+            displayName: Smoke tests
+
+          - script: |
+              echo "Deployment complete!"
+              echo "App version $(appVersion) is live at https://staging.example.com"
+            displayName: Notify success
