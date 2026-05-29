@@ -52,17 +52,50 @@ type Stage struct {
 }
 
 type Job struct {
-	Job         string            `yaml:"job"`
-	DisplayName string            `yaml:"displayName"`
-	DependsOn   []string          `yaml:"-"` // parsed manually
-	Condition   string            `yaml:"condition"`
-	Pool        *Pool             `yaml:"pool"`
-	Variables   map[string]string `yaml:"variables"`
-	TimeoutInMinutes int          `yaml:"timeoutInMinutes"`
-	Steps       []Step            `yaml:"steps"`
+	Job              string            `yaml:"job"`
+	DisplayName      string            `yaml:"displayName"`
+	DependsOn        []string          `yaml:"-"` // parsed manually
+	Condition        string            `yaml:"condition"`
+	Pool             *Pool             `yaml:"pool"`
+	Variables        map[string]string `yaml:"variables"`
+	TimeoutInMinutes int               `yaml:"timeoutInMinutes"`
+	Steps            []Step            `yaml:"steps"`
 	// Deployment job fields
-	Deployment  string            `yaml:"deployment"`
-	Environment string            `yaml:"environment"`
+	Deployment  string    `yaml:"deployment"`
+	Environment string    `yaml:"environment"`
+	Strategy    *Strategy `yaml:"strategy"`
+}
+
+// Strategy covers the runOnce/rolling/canary deployment strategies.
+// For local debugging we only extract steps from whichever strategy is set.
+type Strategy struct {
+	RunOnce *LifecycleHooks `yaml:"runOnce"`
+	Rolling *LifecycleHooks `yaml:"rolling"`
+	Canary  *LifecycleHooks `yaml:"canary"`
+}
+
+// LifecycleHooks holds the step groups for each deployment phase.
+type LifecycleHooks struct {
+	PreDeploy        *PhaseSteps `yaml:"preDeploy"`
+	Deploy           *PhaseSteps `yaml:"deploy"`
+	RouteTraffic     *PhaseSteps `yaml:"routeTraffic"`
+	PostRouteTraffic *PhaseSteps `yaml:"postRouteTraffic"`
+}
+
+// PhaseSteps groups the steps within one lifecycle phase.
+type PhaseSteps struct {
+	Steps []Step `yaml:"steps"`
+}
+
+// AllSteps returns steps from all defined lifecycle phases in declaration order.
+func (h *LifecycleHooks) AllSteps() []Step {
+	var out []Step
+	for _, phase := range []*PhaseSteps{h.PreDeploy, h.Deploy, h.RouteTraffic, h.PostRouteTraffic} {
+		if phase != nil {
+			out = append(out, phase.Steps...)
+		}
+	}
+	return out
 }
 
 // Step represents a single pipeline step, which may be a script, bash,

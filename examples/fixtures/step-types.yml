@@ -1,0 +1,40 @@
+stages:
+  - stage: AllTypes
+    jobs:
+      - job: TypesJob
+        steps:
+          - script: echo hello from script
+            displayName: Script step
+
+          - bash: echo hello from bash
+            displayName: Bash step
+
+          - pwsh: Write-Host "hello from pwsh"
+            displayName: Pwsh step
+
+          - checkout: self
+            clean: true
+            displayName: Checkout step
+
+          - task: UseDotNet@2
+            displayName: Task step
+            inputs:
+              version: "8.x"
+
+          - template: templates/build.yml
+            parameters:
+              config: Release
+
+          - script: echo with env
+            displayName: Step with env
+            env:
+              MY_VAR: hello
+              ANOTHER: world
+
+          - script: long running
+            displayName: Step with timeout
+            timeoutInMinutes: 10
+
+          - script: named step
+            displayName: Named step
+            name: myNamedStep

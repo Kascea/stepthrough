@@ -1,0 +1,10 @@
+stages:
+  - stage: S
+    jobs:
+      - job: J
+        steps:
+          - script: exit 1
+            displayName: Failing step
+            continueOnError: true
+          - script: echo still running
+            displayName: After failure

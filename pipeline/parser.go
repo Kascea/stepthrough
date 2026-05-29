@@ -56,6 +56,17 @@ func ParseBytes(data []byte) (*Pipeline, error) {
 		p.Steps = nil
 	}
 
+	// Normalize: for deployment jobs, pull steps out of strategy hooks
+	// so the rest of the codebase can treat all jobs uniformly.
+	for si := range p.Stages {
+		for ji := range p.Stages[si].Jobs {
+			j := &p.Stages[si].Jobs[ji]
+			if j.Strategy != nil && len(j.Steps) == 0 {
+				j.Steps = extractStrategySteps(j.Strategy)
+			}
+		}
+	}
+
 	// Ensure every step has Enabled defaulted to true.
 	for si := range p.Stages {
 		for ji := range p.Stages[si].Jobs {
@@ -169,6 +180,22 @@ func resolveJobDependsOn(stageNode *yaml.Node, p *Pipeline, si int) error {
 		}
 	}
 	return nil
+}
+
+func extractStrategySteps(s *Strategy) []Step {
+	var hooks *LifecycleHooks
+	switch {
+	case s.RunOnce != nil:
+		hooks = s.RunOnce
+	case s.Rolling != nil:
+		hooks = s.Rolling
+	case s.Canary != nil:
+		hooks = s.Canary
+	}
+	if hooks == nil {
+		return nil
+	}
+	return hooks.AllSteps()
 }
 
 func extractDependsOn(node *yaml.Node) ([]string, error) {

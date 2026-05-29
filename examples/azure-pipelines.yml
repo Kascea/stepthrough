@@ -134,18 +134,21 @@ stages:
       - deployment: DeployStaging
         displayName: Deploy to staging environment
         environment: staging
-        steps:
-          - script: |
-              echo "Downloading artifacts..."
-              echo "Deploying version $(appVersion) to staging..."
-            displayName: Deploy application
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: |
+                    echo "Downloading artifacts..."
+                    echo "Deploying version $(appVersion) to staging..."
+                  displayName: Deploy application
 
-          - script: |
-              echo "Running smoke tests against staging..."
-              echo "Smoke tests passed!"
-            displayName: Smoke tests
+                - script: |
+                    echo "Running smoke tests against staging..."
+                    echo "Smoke tests passed!"
+                  displayName: Smoke tests
 
-          - script: |
-              echo "Deployment complete!"
-              echo "App version $(appVersion) is live at https://staging.example.com"
-            displayName: Notify success
+                - script: |
+                    echo "Deployment complete!"
+                    echo "App version $(appVersion) is live at https://staging.example.com"
+                  displayName: Notify success

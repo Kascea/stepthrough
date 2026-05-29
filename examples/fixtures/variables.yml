@@ -1,0 +1,18 @@
+variables:
+  pipelineVar: pipeline-level
+
+stages:
+  - stage: S
+    variables:
+      stageVar: stage-level
+    jobs:
+      - job: J
+        variables:
+          jobVar: job-level
+        steps:
+          - script: echo $(pipelineVar)
+            displayName: Use pipeline var
+          - script: echo $(stageVar)
+            displayName: Use stage var
+          - script: echo $(jobVar)
+            displayName: Use job var

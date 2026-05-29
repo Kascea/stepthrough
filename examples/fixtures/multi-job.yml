@@ -1,0 +1,17 @@
+stages:
+  - stage: Build
+    jobs:
+      - job: JobA
+        displayName: Job A
+        steps:
+          - script: echo a1
+            displayName: A Step 1
+          - script: echo a2
+            displayName: A Step 2
+
+      - job: JobB
+        displayName: Job B
+        dependsOn: JobA
+        steps:
+          - script: echo b1
+            displayName: B Step 1

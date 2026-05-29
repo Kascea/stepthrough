@@ -10,7 +10,11 @@ func ResolveImage(vmImage string) (image string, ok bool) {
 	switch vmImage {
 	case "", "ubuntu-latest", "ubuntu-22.04":
 		return DefaultImage, true
-	default:
+	case "windows-latest", "windows-2022", "windows-2019",
+		"macos-latest", "macos-13", "macos-12":
 		return "", false
+	default:
+		// Treat as a custom Docker image reference and pass through.
+		return vmImage, true
 	}
 }

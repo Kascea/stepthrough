@@ -1,0 +1,20 @@
+variables:
+  buildConfig: Release
+
+stages:
+  - stage: Build
+    displayName: Build Stage
+    jobs:
+      - job: BuildJob
+        steps:
+          - script: dotnet build
+            displayName: Build
+          - task: PublishBuildArtifacts@1
+            displayName: Publish
+  - stage: Test
+    dependsOn: Build
+    jobs:
+      - job: TestJob
+        steps:
+          - script: dotnet test
+            displayName: Run tests

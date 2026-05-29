@@ -1,0 +1,14 @@
+stages:
+  - stage: Deploy
+    jobs:
+      - deployment: DeployProd
+        displayName: Deploy to production
+        environment: production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - script: echo deploying
+                  displayName: Deploy app
+                - script: echo smoke test
+                  displayName: Smoke test
