@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go vet *)",
+      "Bash(ls -la /tmp/stepthrough-test 2>/dev/null && echo \"binary built!\")",
+      "Read(//private/tmp/**)",
+      "Bash(brew install *)",
+      "Bash(go install *)",
+      "Bash(kill %1)",
+      "Bash(pkill -f \"wails3 dev\")"
+    ]
+  }
+}

@@ -9,25 +9,7 @@ import (
 	"github.com/colecarlson/stepthrough/pipeline"
 )
 
-// StepStatus mirrors debugger.Status to avoid a circular dependency.
-type StepStatus string
 
-const (
-	StatusPending StepStatus = "pending"
-	StatusRunning StepStatus = "running"
-	StatusPassed  StepStatus = "passed"
-	StatusFailed  StepStatus = "failed"
-	StatusSkipped StepStatus = "skipped"
-)
-
-// StepResult is the outcome of running a single step.
-type StepResult struct {
-	Status   StepStatus
-	ExitCode int
-	Output   []string
-	Duration time.Duration
-	Err      error
-}
 
 // Engine executes pipeline steps inside a Docker container.
 // One Engine instance manages exactly one container (one job).
@@ -60,6 +42,9 @@ func (e *Engine) Setup(ctx context.Context, p *pipeline.Pipeline, job *pipeline.
 		return fmt.Errorf("pull image %s: %w", image, err)
 	}
 
+	// Remove any stale container with this name (e.g. from a previous crash).
+	exec.Command("docker", "rm", "-f", containerName).Run() //nolint
+
 	outputCh <- fmt.Sprintf("[stepthrough] starting container %s…", containerName)
 	c, err := Start(ctx, containerName, image, e.workDir, p.Variables)
 	if err != nil {
@@ -71,13 +56,13 @@ func (e *Engine) Setup(ctx context.Context, p *pipeline.Pipeline, job *pipeline.
 }
 
 // RunStep executes a single pipeline step, streaming output to outputCh.
-func (e *Engine) RunStep(ctx context.Context, step *pipeline.Step, outputCh chan<- string) *StepResult {
-	result := &StepResult{Status: StatusRunning}
+func (e *Engine) RunStep(ctx context.Context, step *pipeline.Step, outputCh chan<- string) *pipeline.StepResult {
+	result := &pipeline.StepResult{Status: pipeline.StepStatusRunning}
 	start := time.Now()
 
 	script, ok := ResolveStep(step)
 	if !ok {
-		result.Status = StatusSkipped
+		result.Status = pipeline.StepStatusSkipped
 		result.Duration = time.Since(start)
 		outputCh <- fmt.Sprintf("[stepthrough] step type %q has no local equivalent — skipped", step.Type())
 		return result
@@ -89,24 +74,16 @@ func (e *Engine) RunStep(ctx context.Context, step *pipeline.Step, outputCh chan
 	result.Err = err
 
 	if err != nil {
-		result.Status = StatusFailed
+		result.Status = pipeline.StepStatusFailed
 		return result
 	}
 	if exitCode != 0 && !step.ContinueOnError {
-		result.Status = StatusFailed
+		result.Status = pipeline.StepStatusFailed
 		return result
 	}
 
-	result.Status = StatusPassed
+	result.Status = pipeline.StepStatusPassed
 	return result
-}
-
-// ShellCmd returns an *exec.Cmd for an interactive bash session in the container.
-// Use with tea.ExecProcess so the TUI suspends while the shell is active.
-func (e *Engine) ShellCmd() *exec.Cmd {
-	args := e.container.ShellArgs()
-	cmd := exec.Command(args[0], args[1:]...)
-	return cmd
 }
 
 // ContainerName returns the running container's name.

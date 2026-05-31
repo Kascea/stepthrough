@@ -1,5 +1,7 @@
 package pipeline
 
+import "time"
+
 // Pipeline is the top-level representation of an azure-pipelines.yml file.
 type Pipeline struct {
 	Name      string            `yaml:"name"`
@@ -194,12 +196,34 @@ func (s *Step) Label() string {
 	}
 }
 
+// StepStatus is the execution outcome of a single pipeline step.
+type StepStatus string
+
+const (
+	StepStatusPending    StepStatus = "pending"
+	StepStatusRunning    StepStatus = "running"
+	StepStatusPassed     StepStatus = "passed"
+	StepStatusFailed     StepStatus = "failed"
+	StepStatusSkipped    StepStatus = "skipped"
+	StepStatusCached     StepStatus = "cached"
+	StepStatusDeployment StepStatus = "deployment" // step belongs to a deployment job; never executed locally
+)
+
+// StepResult is the outcome of running a single step.
+type StepResult struct {
+	Status   StepStatus
+	ExitCode int
+	Duration time.Duration
+	Err      error
+}
+
 // FlatStep is a fully-resolved step with its parent stage and job context.
 type FlatStep struct {
-	StageIndex int
-	StageName  string
-	JobIndex   int
-	JobName    string
-	StepIndex  int
-	Step       *Step
+	StageIndex      int
+	StageName       string
+	JobIndex        int
+	JobName         string
+	StepIndex       int
+	Step            *Step
+	IsDeploymentJob bool // true when the parent job is a deployment job (job.Deployment != "")
 }

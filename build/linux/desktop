@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=My Product
+Comment=A stepthrough-scaffold application
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/stepthrough-scaffold %u
+Terminal=false
+Type=Application
+Icon=stepthrough-scaffold
+Categories=Utility;
+StartupWMClass=stepthrough-scaffold
+
+ 

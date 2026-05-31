@@ -448,19 +448,15 @@ func TestParseMainExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if p.Name != "ExamplePipeline" {
-		t.Errorf("name = %q, want 'ExamplePipeline'", p.Name)
+	if p.Name != "stepthrough-ci" {
+		t.Errorf("name = %q, want 'stepthrough-ci'", p.Name)
 	}
 	if len(p.Stages) != 4 {
 		t.Fatalf("expected 4 stages, got %d", len(p.Stages))
 	}
 	// Validate trigger
-	if len(p.Trigger.Branches.Include) != 2 {
-		t.Errorf("trigger branches = %v, want [main, develop]", p.Trigger.Branches.Include)
-	}
-	// Validate PR trigger
-	if len(p.PR.Branches.Include) != 1 {
-		t.Errorf("pr branches = %v, want [main]", p.PR.Branches.Include)
+	if len(p.Trigger.Branches.Include) != 1 {
+		t.Errorf("trigger branches = %v, want [main]", p.Trigger.Branches.Include)
 	}
 	// All stages should have jobs
 	for _, stage := range p.Stages {

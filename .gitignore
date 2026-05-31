@@ -1,0 +1,14 @@
+# Build outputs
+bin/
+stepthrough
+
+# Wails task runner cache
+.task/
+
+# Frontend generated/installed files
+frontend/node_modules/
+frontend/dist/
+frontend/bindings/
+
+# macOS
+.DS_Store

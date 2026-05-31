@@ -92,17 +92,19 @@ func Flatten(p *Pipeline) []FlatStep {
 			if job.DisplayName != "" {
 				jobName = job.DisplayName
 			}
-			if job.Deployment != "" {
+			isDeployment := job.Deployment != ""
+			if isDeployment {
 				jobName = job.Deployment
 			}
 			for ki := range job.Steps {
 				flat = append(flat, FlatStep{
-					StageIndex: si,
-					StageName:  stageName,
-					JobIndex:   ji,
-					JobName:    jobName,
-					StepIndex:  ki,
-					Step:       &p.Stages[si].Jobs[ji].Steps[ki],
+					StageIndex:      si,
+					StageName:       stageName,
+					JobIndex:        ji,
+					JobName:         jobName,
+					StepIndex:       ki,
+					Step:            &p.Stages[si].Jobs[ji].Steps[ki],
+					IsDeploymentJob: isDeployment,
 				})
 			}
 		}

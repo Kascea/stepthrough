@@ -1,12 +1,6 @@
-name: ExamplePipeline
+name: stepthrough-ci
 
 trigger:
-  branches:
-    include:
-      - main
-      - develop
-
-pr:
   branches:
     include:
       - main
@@ -15,68 +9,58 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  buildConfiguration: Release
-  appVersion: 1.0.0
-  testResultsDir: $(System.DefaultWorkingDirectory)/test-results
+  goVersion: '1.25'
 
 stages:
-  - stage: Validate
-    displayName: Validate & Lint
+  - stage: Lint
+    displayName: Lint & Vet
     jobs:
       - job: Lint
         displayName: Lint and format check
         steps:
           - checkout: self
-            clean: true
             displayName: Checkout source
 
-          - script: echo "Installing linters..."
-            displayName: Install dependencies
+          - script: |
+              GO_VERSION=$(curl -fsSL "https://go.dev/VERSION?m=text" | head -1)
+              echo "Installing $GO_VERSION..."
+              curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+              tar -xzf /tmp/go.tar.gz -C /usr/local
+              /usr/local/go/bin/go version
+            displayName: Install Go
 
           - script: |
-              echo "Running linter..."
-              echo "No lint errors found."
-            displayName: Run linter
+              export PATH=$PATH:/usr/local/go/bin
+              unformatted=$(gofmt -l $(find . -name '*.go' -not -path './frontend/*'))
+              if [ -n "$unformatted" ]; then
+                echo "Unformatted files:"
+                echo "$unformatted"
+                exit 1
+              fi
+              echo "All Go files are properly formatted."
+            displayName: Check formatting (gofmt)
 
-          - script: echo "Checking code formatting..."
-            displayName: Check formatting
+          - script: |
+              export PATH=$PATH:/usr/local/go/bin
+              go vet ./...
+              echo "go vet passed."
+            displayName: Vet (go vet)
 
   - stage: Build
     displayName: Build
-    dependsOn: Validate
+    dependsOn: Lint
     jobs:
-      - job: BuildApp
+      - job: Build
         displayName: Build application
         steps:
           - checkout: self
             displayName: Checkout source
 
-          - task: UseDotNet@2
-            displayName: Use .NET 8
-            inputs:
-              version: "8.x"
-
           - script: |
-              echo "Restoring packages..."
-              echo "dotnet restore"
-            displayName: Restore packages
-
-          - script: |
-              echo "Building in $(buildConfiguration) mode..."
-              echo "dotnet build --configuration $(buildConfiguration)"
-            displayName: Build solution
-
-          - script: |
-              echo "Publishing artifacts..."
-              mkdir -p $(Build.ArtifactStagingDirectory)/app
-              echo "version=$(appVersion)" > $(Build.ArtifactStagingDirectory)/app/version.txt
-            displayName: Publish artifacts
-
-          - task: PublishBuildArtifacts@1
-            displayName: Upload build artifacts
-            inputs:
-              pathToPublish: $(Build.ArtifactStagingDirectory)
-              artifactName: drop
+              export PATH=$PATH:/usr/local/go/bin
+              go build ./...
+              echo "Build successful."
+            displayName: Build (go build)
 
   - stage: Test
     displayName: Test
@@ -89,66 +73,34 @@ stages:
             displayName: Checkout source
 
           - script: |
-              echo "Running unit tests..."
-              mkdir -p $(testResultsDir)
-              echo "Tests passed: 42, Failed: 0" > $(testResultsDir)/results.txt
-              echo "All unit tests passed!"
-            displayName: Run unit tests
+              export PATH=$PATH:/usr/local/go/bin
+              go test ./pipeline/... -v -count=1
+            displayName: Pipeline parser tests
 
           - script: |
-              echo "Computing code coverage..."
-              echo "Coverage: 87%"
-            displayName: Calculate coverage
-
-          - task: PublishTestResults@2
-            displayName: Publish test results
-            inputs:
-              testResultsFormat: JUnit
-              testResultsFiles: "**/*.xml"
-              searchFolder: $(testResultsDir)
-
-      - job: IntegrationTests
-        displayName: Integration tests
-        dependsOn: UnitTests
-        steps:
-          - script: |
-              echo "Starting services for integration tests..."
-              echo "docker compose up -d"
-            displayName: Start dependencies
+              export PATH=$PATH:/usr/local/go/bin
+              go test ./runner/... -v -count=1
+            displayName: Runner tests
 
           - script: |
-              echo "Running integration tests..."
-              echo "All integration tests passed!"
-            displayName: Run integration tests
-
-          - script: |
-              echo "Tearing down services..."
-              echo "docker compose down"
-            displayName: Stop dependencies
-            continueOnError: true
+              export PATH=$PATH:/usr/local/go/bin
+              go test ./... -count=1 -coverprofile=coverage.out
+              go tool cover -func=coverage.out | tail -1
+            displayName: Coverage report
 
   - stage: Deploy
     displayName: Deploy to Staging
     dependsOn: Test
     jobs:
       - deployment: DeployStaging
-        displayName: Deploy to staging environment
+        displayName: Deploy staging environment
         environment: staging
         strategy:
           runOnce:
             deploy:
               steps:
-                - script: |
-                    echo "Downloading artifacts..."
-                    echo "Deploying version $(appVersion) to staging..."
-                  displayName: Deploy application
+                - script: echo "Deploying to staging…"
+                  displayName: Deploy
 
-                - script: |
-                    echo "Running smoke tests against staging..."
-                    echo "Smoke tests passed!"
-                  displayName: Smoke tests
-
-                - script: |
-                    echo "Deployment complete!"
-                    echo "App version $(appVersion) is live at https://staging.example.com"
-                  displayName: Notify success
+                - script: echo "Running smoke tests…"
+                  displayName: Smoke test
