@@ -26,15 +26,6 @@ export interface LogLine {
   line: string
 }
 
-export const STATUS_ICON: Record<StepStatus, string> = {
-  pending: '○',
-  running: '◌',
-  passed: '✔',
-  failed: '✖',
-  skipped: '⊝',
-  cached: '⚡',
-}
-
 export function groupSteps(steps: StepState[]) {
   const stages: { name: string; jobs: { name: string; steps: StepState[] }[] }[] = []
   for (const step of steps) {

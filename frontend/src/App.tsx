@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useReducer } from 'react'
 import { Events, Call } from '@wailsio/runtime'
 import './app.css'
 
@@ -9,95 +9,178 @@ import LogPanel from './components/LogPanel'
 import SplashScreen from './components/SplashScreen'
 import ErrorScreen from './components/ErrorScreen'
 
+interface AppState {
+  pipeline: PipelineState | null
+  parseError: string | null
+  selectedStep: number | null
+  logs: Record<number, string[]>
+  setupLogs: string[]
+  isSettingUp: boolean
+}
+
+type AppAction =
+  | { type: 'pipeline:loaded'; payload: PipelineState }
+  | { type: 'pipeline:synced'; payload: PipelineState }
+  | { type: 'pipeline:error'; payload: string }
+  | { type: 'step:started'; payload: number }
+  | { type: 'step:log'; payload: LogLine }
+  | { type: 'step:cached'; payload: number }
+  | { type: 'pipeline:done'; payload: PipelineState }
+  | { type: 'setup:log'; payload: string }
+  | { type: 'step:selected'; payload: number }
+
+const initialState: AppState = {
+  pipeline: null,
+  parseError: null,
+  selectedStep: null,
+  logs: {},
+  setupLogs: [],
+  isSettingUp: false,
+}
+
+function reducer(state: AppState, action: AppAction): AppState {
+  switch (action.type) {
+    case 'pipeline:loaded':
+      return {
+        pipeline: action.payload,
+        parseError: null,
+        selectedStep: null,
+        logs: {},
+        setupLogs: [],
+        isSettingUp: false,
+      }
+    case 'pipeline:synced':
+      return {
+        ...state,
+        pipeline: {
+          ...action.payload,
+        },
+      }
+    case 'pipeline:error':
+      return {
+        ...state,
+        parseError: action.payload,
+        isSettingUp: false,
+      }
+    case 'step:started': {
+      if (!state.pipeline) return state
+      const steps = [...state.pipeline.steps]
+      steps[action.payload] = { ...steps[action.payload], status: 'running' }
+      return {
+        ...state,
+        pipeline: { ...state.pipeline, steps, running: true },
+        selectedStep: action.payload,
+        isSettingUp: false,
+      }
+    }
+    case 'step:log': {
+      const { stepIndex, line } = action.payload
+      return {
+        ...state,
+        logs: {
+          ...state.logs,
+          [stepIndex]: [...(state.logs[stepIndex] ?? []), line],
+        },
+      }
+    }
+    case 'step:cached': {
+      if (!state.pipeline) return state
+      const steps = [...state.pipeline.steps]
+      steps[action.payload] = { ...steps[action.payload], status: 'cached' }
+      return {
+        ...state,
+        pipeline: { ...state.pipeline, steps },
+      }
+    }
+    case 'pipeline:done':
+      return {
+        ...state,
+        pipeline: action.payload,
+        isSettingUp: false,
+      }
+    case 'setup:log':
+      return {
+        ...state,
+        isSettingUp: true,
+        selectedStep: null,
+        setupLogs: [...state.setupLogs, action.payload],
+      }
+    case 'step:selected':
+      return {
+        ...state,
+        selectedStep: action.payload,
+      }
+    default:
+      return state
+  }
+}
+
 export default function App() {
-  const [state, setState] = useState<PipelineState | null>(null)
-  const [parseError, setParseError] = useState<string | null>(null)
-  const [selectedStep, setSelectedStep] = useState<number | null>(null)
-  const [logs, setLogs] = useState<Record<number, string[]>>({})
-  const [setupLogs, setSetupLogs] = useState<string[]>([])
-  const [isSettingUp, setIsSettingUp] = useState(false)
+  const [state, dispatch] = useReducer(reducer, initialState)
 
   useEffect(() => {
-    Events.On('pipeline:loaded', (event: any) => {
-      const s: PipelineState = event.data
-      setState(s)
-      setParseError(null)
-      setLogs({})
-      setSetupLogs([])
-      setIsSettingUp(false)
-    })
+    const unsubs = [
+      Events.On('pipeline:loaded', (event: any) => {
+        dispatch({ type: 'pipeline:loaded', payload: event.data as PipelineState })
+      }),
+      Events.On('pipeline:error', (event: any) => {
+        dispatch({ type: 'pipeline:error', payload: event.data as string })
+      }),
+      Events.On('step:started', (event: any) => {
+        dispatch({ type: 'step:started', payload: event.data as number })
+      }),
+      Events.On('step:log', (event: any) => {
+        dispatch({ type: 'step:log', payload: event.data as LogLine })
+      }),
+      Events.On('step:cached', (event: any) => {
+        dispatch({ type: 'step:cached', payload: event.data as number })
+      }),
+      Events.On('step:done', () => {
+        Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.GetState')
+          .then((pipeline: PipelineState) => {
+            dispatch({ type: 'pipeline:synced', payload: pipeline })
+          })
+          .catch(console.error)
+      }),
+      Events.On('pipeline:done', (event: any) => {
+        dispatch({ type: 'pipeline:done', payload: event.data as PipelineState })
+      }),
+      Events.On('setup:log', (event: any) => {
+        dispatch({ type: 'setup:log', payload: event.data as string })
+      }),
+    ]
 
-    Events.On('pipeline:error', (event: any) => {
-      setParseError(event.data)
-      setIsSettingUp(false)
-    })
-
-    Events.On('step:started', (event: any) => {
-      const idx: number = event.data
-      setIsSettingUp(false)
-      setState(prev => {
-        if (!prev) return prev
-        const steps = [...prev.steps]
-        steps[idx] = { ...steps[idx], status: 'running' }
-        return { ...prev, steps, running: true }
-      })
-      setSelectedStep(idx)
-    })
-
-    Events.On('step:log', (event: any) => {
-      const { stepIndex, line }: LogLine = event.data
-      setLogs(prev => ({
-        ...prev,
-        [stepIndex]: [...(prev[stepIndex] ?? []), line],
-      }))
-    })
-
-    Events.On('step:cached', (event: any) => {
-      const idx: number = event.data
-      setState(prev => {
-        if (!prev) return prev
-        const steps = [...prev.steps]
-        steps[idx] = { ...steps[idx], status: 'cached' }
-        return { ...prev, steps }
-      })
-    })
-
-    Events.On('pipeline:done', (event: any) => {
-      setState(event.data)
-      setIsSettingUp(false)
-    })
-
-    Events.On('setup:log', (event: any) => {
-      setIsSettingUp(true)
-      setSetupLogs(prev => [...prev, event.data])
-    })
+    return () => {
+      unsubs.forEach(unsub => unsub())
+    }
   }, [])
 
   const openFile = () => {
     Call.ByName('github.com/colecarlson/stepthrough/service.UIService.SelectAndWatch').catch(console.error)
   }
 
-  if (parseError) return <ErrorScreen error={parseError} />
+  if (state.parseError) return <ErrorScreen error={state.parseError} />
 
-  if (!state) return <SplashScreen onOpen={openFile} setupLogs={setupLogs} isSettingUp={isSettingUp} />
+  if (!state.pipeline) {
+    return <SplashScreen onOpen={openFile} setupLogs={state.setupLogs} isSettingUp={state.isSettingUp} />
+  }
 
   return (
     <div className="app">
-      <Topbar state={state} isSettingUp={isSettingUp} />
+      <Topbar state={state.pipeline} />
       <div className="layout">
         <Sidebar
-          steps={state.steps ?? []}
-          selectedStep={selectedStep}
-          onSelectStep={setSelectedStep}
-          isSettingUp={isSettingUp}
+          steps={state.pipeline.steps ?? []}
+          selectedStep={state.selectedStep}
+          onSelectStep={index => dispatch({ type: 'step:selected', payload: index })}
         />
         <LogPanel
-          selectedStep={selectedStep}
-          steps={state.steps ?? []}
-          logs={logs}
-          setupLogs={setupLogs}
-          variables={state.variables ?? {}}
-          isSettingUp={isSettingUp}
+          selectedStep={state.selectedStep}
+          steps={state.pipeline.steps ?? []}
+          logs={state.logs}
+          setupLogs={state.setupLogs}
+          variables={state.pipeline.variables ?? {}}
+          isSettingUp={state.isSettingUp}
         />
       </div>
     </div>

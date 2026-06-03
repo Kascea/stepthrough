@@ -16,6 +16,7 @@ export default function LogPanel({ selectedStep, steps, logs, setupLogs, variabl
   const logEndRef = useRef<HTMLDivElement>(null)
   const selectedLogs = selectedStep !== null ? (logs[selectedStep] ?? []) : []
   const step = selectedStep !== null ? steps[selectedStep] : null
+  const logIconStatus = step?.status === 'running' ? 'pending' : step?.status
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -25,15 +26,17 @@ export default function LogPanel({ selectedStep, steps, logs, setupLogs, variabl
 
   return (
     <main className="log-panel">
-      {showSetup ? (
-        <div className="setup-header">
+      {isSettingUp ? (
+        <div className="setup-global-banner">
           <span className="setup-spinner" />
-          <span className="setup-header-text">Setting up container</span>
+          <span>Setting up container...</span>
         </div>
-      ) : step ? (
+      ) : null}
+
+      {step && !showSetup ? (
         <div className="log-header">
           <span className={`log-badge s-${step.status}`}>
-            <StatusIcon status={step.status} size={12} />
+            <StatusIcon status={logIconStatus ?? 'pending'} size={12} />
             {step.status}
           </span>
           <span className="log-step-name">{step.label}</span>
@@ -46,11 +49,14 @@ export default function LogPanel({ selectedStep, steps, logs, setupLogs, variabl
       <div className="log-body">
         {showSetup ? (
           setupLogs.length === 0 ? (
-            <div className="log-empty">Pulling image…</div>
+            <div className="log-empty">Waiting for environment output...</div>
           ) : (
-            setupLogs.map((line, i) => (
-              <div key={i} className="log-line">{line}</div>
-            ))
+            <>
+              <div className="setup-stream-tag">Container setup logs</div>
+              {setupLogs.map((line, i) => (
+                <div key={i} className="log-line">{line}</div>
+              ))}
+            </>
           )
         ) : selectedLogs.length === 0 ? (
           <div className="log-empty">
