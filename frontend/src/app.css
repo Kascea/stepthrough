@@ -282,6 +282,8 @@ body {
   font-size: 12px;
   line-height: 1.65;
   background: var(--bg);
+  user-select: text;
+  -webkit-user-select: text;
 }
 .log-body::-webkit-scrollbar { width: 4px; }
 .log-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }

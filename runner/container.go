@@ -93,7 +93,7 @@ func (c *Container) execScript(ctx context.Context, script string, env map[strin
 		args = append(args, "-e", k+"="+v)
 	}
 	// Use bash with pipefail so errors propagate correctly.
-	args = append(args, c.name,
+	args = append(args, "-w", workspacePath, c.name,
 		"bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script,
 	)
 

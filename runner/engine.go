@@ -9,8 +9,6 @@ import (
 	"github.com/colecarlson/stepthrough/pipeline"
 )
 
-
-
 // Engine executes pipeline steps inside a Docker container.
 // One Engine instance manages exactly one container (one job).
 type Engine struct {

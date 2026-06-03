@@ -31,7 +31,7 @@ stages:
 
           - script: |
               export PATH=$PATH:/usr/local/go/bin
-              unformatted=$(gofmt -l $(find . -name '*.go' -not -path './frontend/*'))
+              unformatted=$(gofmt -l $(find "$BUILD_SOURCESDIRECTORY" -name '*.go' -not -path '*/frontend/*'))
               if [ -n "$unformatted" ]; then
                 echo "Unformatted files:"
                 echo "$unformatted"
@@ -42,7 +42,7 @@ stages:
 
           - script: |
               export PATH=$PATH:/usr/local/go/bin
-              go vet ./...
+              go -C "$BUILD_SOURCESDIRECTORY" vet -tags=server ./...
               echo "go vet passed."
             displayName: Vet (go vet)
 
@@ -58,7 +58,7 @@ stages:
 
           - script: |
               export PATH=$PATH:/usr/local/go/bin
-              go build ./...
+              go -C "$BUILD_SOURCESDIRECTORY" build -tags=server ./...
               echo "Build successful."
             displayName: Build (go build)
 
@@ -74,18 +74,18 @@ stages:
 
           - script: |
               export PATH=$PATH:/usr/local/go/bin
-              go test ./pipeline/... -v -count=1
+              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./pipeline/... -v -count=1
             displayName: Pipeline parser tests
 
           - script: |
               export PATH=$PATH:/usr/local/go/bin
-              go test ./runner/... -v -count=1
+              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./runner/... -v -count=1
             displayName: Runner tests
 
           - script: |
               export PATH=$PATH:/usr/local/go/bin
-              go test ./... -count=1 -coverprofile=coverage.out
-              go tool cover -func=coverage.out | tail -1
+              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./... -count=1 -coverprofile=coverage.out
+              go -C "$BUILD_SOURCESDIRECTORY" tool cover -func=coverage.out | tail -1
             displayName: Coverage report
 
   - stage: Deploy

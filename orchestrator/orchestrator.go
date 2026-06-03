@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os/exec"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 
 	"github.com/colecarlson/stepthrough/pipeline"
@@ -182,7 +185,7 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 		o.sink("pipeline:done", o.GetState())
 	}()
 
-	workDir := dirOf(o.state.File)
+	workDir := workspaceRoot(o.state.File)
 
 	o.mu.Lock()
 	if o.executor == nil {
@@ -329,10 +332,19 @@ func stepHash(step *pipeline.Step, vars map[string]string) string {
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
-func dirOf(filePath string) string {
-	idx := len(filePath) - 1
-	for idx > 0 && filePath[idx] != '/' {
-		idx--
+func workspaceRoot(filePath string) string {
+	dir := filepath.Dir(filePath)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
 	}
-	return filePath[:idx]
+
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err == nil {
+		root := strings.TrimSpace(string(out))
+		if root != "" {
+			return root
+		}
+	}
+
+	return dir
 }

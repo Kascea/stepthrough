@@ -44,13 +44,13 @@ type Pool struct {
 }
 
 type Stage struct {
-	Stage        string            `yaml:"stage"`
-	DisplayName  string            `yaml:"displayName"`
-	DependsOn    []string          `yaml:"-"` // parsed manually (string or []string)
-	Condition    string            `yaml:"condition"`
-	Variables    map[string]string `yaml:"variables"`
-	Pool         *Pool             `yaml:"pool"`
-	Jobs         []Job             `yaml:"jobs"`
+	Stage       string            `yaml:"stage"`
+	DisplayName string            `yaml:"displayName"`
+	DependsOn   []string          `yaml:"-"` // parsed manually (string or []string)
+	Condition   string            `yaml:"condition"`
+	Variables   map[string]string `yaml:"variables"`
+	Pool        *Pool             `yaml:"pool"`
+	Jobs        []Job             `yaml:"jobs"`
 }
 
 type Job struct {
@@ -104,13 +104,13 @@ func (h *LifecycleHooks) AllSteps() []Step {
 // powershell, checkout, task, or template reference.
 type Step struct {
 	// Common to all step types
-	DisplayName string            `yaml:"displayName"`
-	Name        string            `yaml:"name"`
-	Condition   string            `yaml:"condition"`
-	ContinueOnError bool          `yaml:"continueOnError"`
-	Enabled     bool              `yaml:"-"` // defaults to true
-	Env         map[string]string `yaml:"env"`
-	TimeoutInMinutes int          `yaml:"timeoutInMinutes"`
+	DisplayName      string            `yaml:"displayName"`
+	Name             string            `yaml:"name"`
+	Condition        string            `yaml:"condition"`
+	ContinueOnError  bool              `yaml:"continueOnError"`
+	Enabled          bool              `yaml:"-"` // defaults to true
+	Env              map[string]string `yaml:"env"`
+	TimeoutInMinutes int               `yaml:"timeoutInMinutes"`
 
 	// script / bash / pwsh / powershell steps
 	Script     string `yaml:"script"`
@@ -135,14 +135,14 @@ type Step struct {
 type StepType string
 
 const (
-	StepTypeScript    StepType = "script"
-	StepTypeBash      StepType = "bash"
-	StepTypePwsh      StepType = "pwsh"
+	StepTypeScript     StepType = "script"
+	StepTypeBash       StepType = "bash"
+	StepTypePwsh       StepType = "pwsh"
 	StepTypePowerShell StepType = "powershell"
-	StepTypeTask      StepType = "task"
-	StepTypeCheckout  StepType = "checkout"
-	StepTypeTemplate  StepType = "template"
-	StepTypeUnknown   StepType = "unknown"
+	StepTypeTask       StepType = "task"
+	StepTypeCheckout   StepType = "checkout"
+	StepTypeTemplate   StepType = "template"
+	StepTypeUnknown    StepType = "unknown"
 )
 
 // Type returns the resolved step type.
