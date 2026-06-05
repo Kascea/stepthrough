@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -40,11 +41,15 @@ type PipelineService struct {
 }
 
 func NewPipelineService(factory orchestrator.ExecutorFactory) *PipelineService {
-	return &PipelineService{
+	svc := &PipelineService{
 		factory: factory,
-		tabs:    newTabManager(),
 		logs:    newLogStore(),
 	}
+	svc.tabs = newTabManager(
+		func(file string) { svc.ReloadFile(file) },
+		func(err string) { svc.emit("watcher:error", err) },
+	)
+	return svc
 }
 
 func (s *PipelineService) SetApp(app *application.App) { s.app = app }
@@ -194,6 +199,7 @@ func (s *PipelineService) SetActiveTab(file string) {
 }
 
 // RemoveTab closes a pipeline tab and cleans up its orchestrator.
+// The tab's file watcher is closed by tabManager.remove.
 func (s *PipelineService) RemoveTab(file string) {
 	orch, ok := s.tabs.remove(file)
 	if !ok {
@@ -206,6 +212,22 @@ func (s *PipelineService) RemoveTab(file string) {
 		}
 		s.persistSession()
 	}()
+}
+
+// AddTab opens a new pipeline tab for file, starts watching it, and triggers an
+// initial load+run. If the tab already exists this is a no-op.
+func (s *PipelineService) AddTab(file string) {
+	abs, err := filepath.Abs(file)
+	if err != nil {
+		return
+	}
+	created, _ := s.tabs.ensure(abs, func() *orchestrator.Orchestrator {
+		return orchestrator.New(s.factory, s.orchestratorSink(abs))
+	})
+	if created {
+		s.emit("pipeline:tab:added", abs)
+		s.ReloadFile(abs)
+	}
 }
 
 // RunPipeline starts running a specific pipeline from the given step index.

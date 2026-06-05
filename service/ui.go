@@ -4,12 +4,12 @@ import "github.com/wailsapp/wails/v3/pkg/application"
 
 // UIService handles UI-layer interactions that require a live Wails app.
 type UIService struct {
-	app     *application.App
-	watcher *WatcherService
+	app      *application.App
+	pipeline *PipelineService
 }
 
-func NewUIService(watcher *WatcherService) *UIService {
-	return &UIService{watcher: watcher}
+func NewUIService(pipeline *PipelineService) *UIService {
+	return &UIService{pipeline: pipeline}
 }
 
 func (u *UIService) SetApp(app *application.App) { u.app = app }
@@ -24,11 +24,7 @@ func (u *UIService) SelectAndAdd() string {
 	if err != nil || file == "" {
 		return ""
 	}
-	go func() {
-		if err := u.watcher.AddWatch(file); err != nil {
-			u.watcher.sysEmit("watcher:error", err.Error())
-		}
-	}()
+	go u.pipeline.AddTab(file)
 	return file
 }
 
@@ -43,11 +39,6 @@ func (u *UIService) RelocateAndWatch(oldFile string) string {
 	if err != nil || file == "" {
 		return ""
 	}
-	go func() {
-		u.watcher.pipeline.RelocatePipeline(oldFile, file)
-		if err := u.watcher.AddWatch(file); err != nil {
-			u.watcher.sysEmit("watcher:error", err.Error())
-		}
-	}()
+	go u.pipeline.RelocatePipeline(oldFile, file)
 	return file
 }

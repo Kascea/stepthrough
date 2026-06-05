@@ -32,21 +32,14 @@ func main() {
 	pipelineSvc := service.NewPipelineService(factory)
 
 	var app *application.App
-	sysEmit := func(event string, data any) {
-		if app != nil {
-			app.Event.Emit(event, data)
-		}
-	}
 
-	watcherSvc := service.NewWatcherService(pipelineSvc, sysEmit)
-	uiSvc := service.NewUIService(watcherSvc)
+	uiSvc := service.NewUIService(pipelineSvc)
 
 	app = application.New(application.Options{
 		Name:        "stepthrough",
 		Description: "Azure Pipelines local runner with hot-refresh",
 		Services: []application.Service{
 			application.NewService(pipelineSvc),
-			application.NewService(watcherSvc),
 			application.NewService(uiSvc),
 		},
 		Assets: application.AssetOptions{
@@ -79,28 +72,17 @@ func main() {
 		go func() {
 			// Give the frontend time to mount and register event listeners.
 			time.Sleep(400 * time.Millisecond)
-			if err := watcherSvc.AddWatch(pipelineFile); err != nil {
-				log.Printf("watcher error: %v", err)
-			}
+			pipelineSvc.AddTab(pipelineFile)
 		}()
 	} else {
 		// Session restore mode: validate saved files after the frontend mounts.
+		// RestoreTab creates the orchestrator, starts the watcher if the file exists,
+		// and emits pipeline:loaded or pipeline:missing.
 		go func() {
 			time.Sleep(400 * time.Millisecond)
 			sess := session.Load()
 			for _, file := range sess.TabOrder {
-				// RestoreTab creates the orchestrator and emits pipeline:loaded or pipeline:missing.
-				// It does NOT auto-run — the user decides when to run.
 				pipelineSvc.RestoreTab(file)
-
-				// For files that exist, start the hot-reload watcher.
-				// AddWatch is a no-op for the initial load (EnsureTab returns false since
-				// RestoreTab already created the orchestrator).
-				if _, err := os.Stat(file); err == nil {
-					if err := watcherSvc.AddWatch(file); err != nil {
-						log.Printf("watcher error for %s: %v", file, err)
-					}
-				}
 			}
 		}()
 	}

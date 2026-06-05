@@ -2,6 +2,9 @@ package service
 
 import (
 	"sync"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
 
 	"github.com/colecarlson/stepthrough/orchestrator"
 )
@@ -18,28 +21,81 @@ const (
 )
 
 type tabEntry struct {
-	orch   *orchestrator.Orchestrator // nil for session-seeded tabs before RestoreTab
-	status TabStatus
+	orch    *orchestrator.Orchestrator
+	status  TabStatus
+	watcher *fsnotify.Watcher
 }
 
-// tabManager owns the set of active pipeline tabs, their orchestrators, and ordering.
-// All methods are safe for concurrent use.
+// tabManager owns the set of active pipeline tabs, their orchestrators, file watchers,
+// and ordering. All methods are safe for concurrent use.
 type tabManager struct {
-	mu         sync.Mutex
-	entries    map[string]*tabEntry
-	order      []string
-	activeFile string
+	mu           sync.Mutex
+	entries      map[string]*tabEntry
+	order        []string
+	activeFile   string
+	onFileChange func(file string)
+	onWatchError func(err string)
 }
 
-func newTabManager() *tabManager {
+func newTabManager(onFileChange func(string), onWatchError func(string)) *tabManager {
 	return &tabManager{
-		entries: make(map[string]*tabEntry),
+		entries:      make(map[string]*tabEntry),
+		onFileChange: onFileChange,
+		onWatchError: onWatchError,
+	}
+}
+
+// startWatch creates an fsnotify watcher for file and starts the debounce goroutine.
+// Returns nil if the file cannot be watched (e.g. does not exist yet).
+// Safe to call with m.mu held — the goroutine runs independently.
+func (m *tabManager) startWatch(file string) *fsnotify.Watcher {
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		if m.onWatchError != nil {
+			m.onWatchError(err.Error())
+		}
+		return nil
+	}
+	if err := w.Add(file); err != nil {
+		w.Close()
+		return nil
+	}
+	go m.watchLoop(file, w)
+	return w
+}
+
+func (m *tabManager) watchLoop(file string, w *fsnotify.Watcher) {
+	var debounce *time.Timer
+	for {
+		select {
+		case event, ok := <-w.Events:
+			if !ok {
+				return
+			}
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
+				if debounce != nil {
+					debounce.Stop()
+				}
+				debounce = time.AfterFunc(150*time.Millisecond, func() {
+					if m.onFileChange != nil {
+						m.onFileChange(file)
+					}
+				})
+			}
+		case err, ok := <-w.Errors:
+			if !ok {
+				return
+			}
+			if m.onWatchError != nil {
+				m.onWatchError(err.Error())
+			}
+		}
 	}
 }
 
 // seedOrder sets the tab order and active file from a saved session, creating
 // placeholder entries for each file. Only takes effect on the first call.
-// Orchestrators are added later via addOrch or ensure.
+// Orchestrators and watchers are added later via addOrch.
 func (m *tabManager) seedOrder(order []string, activeFile string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -55,8 +111,8 @@ func (m *tabManager) seedOrder(order []string, activeFile string) {
 	}
 }
 
-// addOrch attaches an orchestrator to an existing (or new) entry without
-// touching tab order or activeFile. Used by RestoreTab where order is already seeded.
+// addOrch attaches an orchestrator to an existing (or new) entry and starts watching
+// the file. Used by RestoreTab where order is already seeded.
 func (m *tabManager) addOrch(file string, make func() *orchestrator.Orchestrator) *orchestrator.Orchestrator {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -65,16 +121,20 @@ func (m *tabManager) addOrch(file string, make func() *orchestrator.Orchestrator
 		return e.orch
 	}
 	orch := make()
+	w := m.startWatch(file) // nil if file is missing — caller handles the missing case
 	if ok {
 		e.orch = orch
+		if e.watcher == nil {
+			e.watcher = w
+		}
 	} else {
-		m.entries[file] = &tabEntry{orch: orch, status: TabStatusEmpty}
+		m.entries[file] = &tabEntry{orch: orch, status: TabStatusEmpty, watcher: w}
 	}
 	return orch
 }
 
 // ensure registers a tab for file if one doesn't already exist, appending it to
-// the order. Use for new tabs opened by the user.
+// the order and starting the file watcher. Use for new tabs opened by the user.
 // Returns (true, newOrch) if created, (false, existingOrch) otherwise.
 func (m *tabManager) ensure(file string, make func() *orchestrator.Orchestrator) (bool, *orchestrator.Orchestrator) {
 	m.mu.Lock()
@@ -83,7 +143,8 @@ func (m *tabManager) ensure(file string, make func() *orchestrator.Orchestrator)
 		return false, e.orch
 	}
 	orch := make()
-	m.entries[file] = &tabEntry{orch: orch, status: TabStatusEmpty}
+	w := m.startWatch(file)
+	m.entries[file] = &tabEntry{orch: orch, status: TabStatusEmpty, watcher: w}
 	m.order = append(m.order, file)
 	m.activeFile = file
 	return true, orch
@@ -118,12 +179,12 @@ func (m *tabManager) getStatus(file string) (TabStatus, bool) {
 	return TabStatusEmpty, false
 }
 
-// remove deletes the tab for file and returns its orchestrator for cleanup.
+// remove deletes the tab, closes its watcher, and returns its orchestrator for cleanup.
 func (m *tabManager) remove(file string) (*orchestrator.Orchestrator, bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	e, ok := m.entries[file]
 	if !ok {
+		m.mu.Unlock()
 		return nil, false
 	}
 	delete(m.entries, file)
@@ -140,6 +201,11 @@ func (m *tabManager) remove(file string) (*orchestrator.Orchestrator, bool) {
 			m.activeFile = ""
 		}
 	}
+	w := e.watcher
+	m.mu.Unlock()
+	if w != nil {
+		w.Close()
+	}
 	if e.orch != nil {
 		return e.orch, true
 	}
@@ -153,18 +219,20 @@ func (m *tabManager) setActive(file string) {
 	m.mu.Unlock()
 }
 
-// relocate moves a tab from oldFile to newFile, replacing its orchestrator.
-// Returns the old orchestrator for cleanup, or (nil, false) if oldFile not found.
+// relocate moves a tab from oldFile to newFile, replacing its orchestrator and watcher.
+// Returns the old orchestrator for cleanup.
 func (m *tabManager) relocate(oldFile, newFile string, make func() *orchestrator.Orchestrator) (*orchestrator.Orchestrator, bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	e, ok := m.entries[oldFile]
 	if !ok {
+		m.mu.Unlock()
 		return nil, false
 	}
 	oldOrch := e.orch
+	oldWatcher := e.watcher
+	newWatcher := m.startWatch(newFile)
 	delete(m.entries, oldFile)
-	m.entries[newFile] = &tabEntry{orch: make(), status: TabStatusEmpty}
+	m.entries[newFile] = &tabEntry{orch: make(), status: TabStatusEmpty, watcher: newWatcher}
 	for i, f := range m.order {
 		if f == oldFile {
 			m.order[i] = newFile
@@ -173,6 +241,10 @@ func (m *tabManager) relocate(oldFile, newFile string, make func() *orchestrator
 	}
 	if m.activeFile == oldFile {
 		m.activeFile = newFile
+	}
+	m.mu.Unlock()
+	if oldWatcher != nil {
+		oldWatcher.Close()
 	}
 	return oldOrch, true
 }
@@ -204,4 +276,16 @@ func (m *tabManager) all() []*orchestrator.Orchestrator {
 		}
 	}
 	return result
+}
+
+// shutdown closes all file watchers.
+func (m *tabManager) shutdown() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.watcher != nil {
+			e.watcher.Close()
+			e.watcher = nil
+		}
+	}
 }
