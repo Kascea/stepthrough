@@ -9,6 +9,9 @@ import (
 	"github.com/colecarlson/stepthrough/pipeline"
 )
 
+// dockerChecker is used by Setup to test Docker availability; override in tests.
+var dockerChecker = IsDockerAvailable
+
 // Engine executes pipeline steps inside a Docker container.
 // One Engine instance manages exactly one container (one job).
 type Engine struct {
@@ -35,7 +38,11 @@ func (e *Engine) Setup(ctx context.Context, p *pipeline.Pipeline, job *pipeline.
 		return fmt.Errorf("vmImage %q is not supported for local debugging (only ubuntu-latest is supported)", vmImage)
 	}
 
-	outputCh <- fmt.Sprintf("[stepthrough] pulling image %s…", image)
+	if !dockerChecker() {
+		return fmt.Errorf("Docker is not running — start Docker Desktop and try again")
+	}
+
+	outputCh <- fmt.Sprintf("[stepthrough] pulling image %s...", image)
 	if err := Pull(ctx, image, &chanLineWriter{ch: outputCh}); err != nil {
 		return fmt.Errorf("pull image %s: %w", image, err)
 	}

@@ -55,7 +55,7 @@ func Start(ctx context.Context, name, image, hostWorkDir string, pipelineVars ma
 		// but the raw YAML key is camelCase — expose both forms.
 		azureEnv[k] = v
 		// Also expose as uppercased with underscores for shell convenience.
-		upper := strings.ToUpper(strings.ReplaceAll(k, ".", "_"))
+		upper := azureEnvName(k)
 		azureEnv[upper] = v
 	}
 	for k, v := range azureEnv {
@@ -92,12 +92,15 @@ func (c *Container) execScript(ctx context.Context, script string, env map[strin
 	for k, v := range env {
 		args = append(args, "-e", k+"="+v)
 	}
-	// Use bash with pipefail so errors propagate correctly.
+	// Azure script tasks write a temp file and run bash against that file. Feed the
+	// script over stdin to avoid shell-quoting the user's script through docker exec.
 	args = append(args, "-w", workspacePath, c.name,
-		"bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script,
+		"bash", "--noprofile", "--norc", "-c",
+		`tmp=$(mktemp /tmp/stepthrough-script.XXXXXX); cat > "$tmp"; bash --noprofile --norc "$tmp"; code=$?; rm -f "$tmp"; exit "$code"`,
 	)
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
+	cmd.Stdin = strings.NewReader("set -eo pipefail\n" + script)
 
 	// Merge stdout+stderr into a single pipe so output is in order.
 	pr, pw := io.Pipe()

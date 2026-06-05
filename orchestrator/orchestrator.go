@@ -2,11 +2,9 @@ package orchestrator
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 
@@ -63,23 +61,23 @@ type LogLine struct {
 // Orchestrator manages pipeline loading, caching, and step execution.
 // It has no dependency on any UI framework and can be driven headlessly.
 type Orchestrator struct {
-	mu        sync.Mutex
-	factory   ExecutorFactory
-	executor  Executor
-	sink      EventSink
-	state     PipelineState
-	pipeline  *pipeline.Pipeline
-	cancelRun context.CancelFunc
-	cache     map[string]bool
+	mu              sync.Mutex
+	factory         ExecutorFactory
+	activeExecutors map[string]Executor
+	sink            EventSink
+	state           PipelineState
+	pipeline        *pipeline.Pipeline
+	cancelRun       context.CancelFunc
+	runID           int
 }
 
 // New returns an Orchestrator wired to the given executor factory and event sink.
 func New(factory ExecutorFactory, sink EventSink) *Orchestrator {
 	return &Orchestrator{
-		factory: factory,
-		sink:    sink,
-		state:   PipelineState{SafeMode: true},
-		cache:   make(map[string]bool),
+		factory:         factory,
+		sink:            sink,
+		state:           PipelineState{SafeMode: true},
+		activeExecutors: make(map[string]Executor),
 	}
 }
 
@@ -126,8 +124,10 @@ func (o *Orchestrator) SetSafeMode(enabled bool) {
 // RunFrom starts execution from the given step index, skipping cached steps.
 func (o *Orchestrator) RunFrom(startIndex int) {
 	o.mu.Lock()
+	var staleExecutors []Executor
 	if o.state.Running && o.cancelRun != nil {
 		o.cancelRun()
+		staleExecutors = o.drainActiveExecutorsLocked()
 	}
 	if !o.state.Valid || o.pipeline == nil {
 		o.mu.Unlock()
@@ -135,12 +135,19 @@ func (o *Orchestrator) RunFrom(startIndex int) {
 	}
 	p := o.pipeline
 	steps := o.state.Steps
+	file := o.state.File
 	o.state.Running = true
+	o.runID++
+	runID := o.runID
 	ctx, cancel := context.WithCancel(context.Background())
 	o.cancelRun = cancel
 	o.mu.Unlock()
 
-	go o.runSteps(ctx, p, steps, startIndex)
+	for _, exec := range staleExecutors {
+		exec.Cleanup(context.Background())
+	}
+
+	go o.runSteps(ctx, p, steps, startIndex, file, runID)
 }
 
 // CancelRun cancels any running execution.
@@ -156,60 +163,54 @@ func (o *Orchestrator) CancelRun() {
 func (o *Orchestrator) InvalidateFrom(idx int) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	flat := pipeline.Flatten(o.pipeline)
-	for i := idx; i < len(o.state.Steps) && i < len(flat); i++ {
-		hash := stepHash(flat[i].Step, o.state.Variables)
-		delete(o.cache, hash)
+	for i := idx; i < len(o.state.Steps); i++ {
 		o.state.Steps[i].Status = pipeline.StepStatusPending
 	}
 }
 
-// Cleanup cancels any running execution and tears down the executor.
+// Cleanup cancels any running execution and tears down active job executors.
 func (o *Orchestrator) Cleanup(ctx context.Context) {
 	o.mu.Lock()
-	defer o.mu.Unlock()
 	if o.cancelRun != nil {
 		o.cancelRun()
 	}
-	if o.executor != nil {
-		o.executor.Cleanup(ctx)
-		o.executor = nil
+	executors := o.drainActiveExecutorsLocked()
+	o.mu.Unlock()
+
+	for _, exec := range executors {
+		exec.Cleanup(ctx)
 	}
 }
 
-func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps []StepState, startIndex int) {
+func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps []StepState, startIndex int, file string, runID int) {
 	defer func() {
 		o.mu.Lock()
-		o.state.Running = false
+		current := o.runID == runID
+		if current {
+			o.state.Running = false
+		}
 		o.mu.Unlock()
-		o.sink("pipeline:done", o.GetState())
+		if current {
+			o.sink("pipeline:done", o.GetState())
+		}
 	}()
 
-	workDir := workspaceRoot(o.state.File)
-
-	o.mu.Lock()
-	if o.executor == nil {
-		o.executor = o.factory(workDir)
-	}
-	exec := o.executor
-	o.mu.Unlock()
-
-	if !exec.Ready() {
-		setupCh := make(chan string, 100)
-		go func() {
-			for line := range setupCh {
-				o.sink("setup:log", line)
-			}
-		}()
-		err := exec.Setup(ctx, p, findFirstJob(p), "stepthrough-run", setupCh)
-		close(setupCh)
-		if err != nil {
-			o.sink("pipeline:error", err.Error())
-			return
-		}
-	}
+	workDir := workspaceRoot(file)
 
 	flat := pipeline.Flatten(p)
+	var currentKey string
+	var currentExec Executor
+	cleanupCurrent := func() {
+		if currentExec == nil {
+			return
+		}
+		if o.unregisterExecutor(currentKey) {
+			currentExec.Cleanup(context.Background())
+		}
+		currentExec = nil
+		currentKey = ""
+	}
+	defer cleanupCurrent()
 
 	for i := startIndex; i < len(flat) && i < len(steps); i++ {
 		select {
@@ -219,6 +220,10 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 		}
 
 		fs := flat[i]
+		key := jobRuntimeKey(fs)
+		if currentExec != nil && currentKey != key {
+			cleanupCurrent()
+		}
 
 		// Deployment jobs are never executed locally — display only.
 		if fs.IsDeploymentJob {
@@ -234,12 +239,26 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 			continue
 		}
 
-		hash := stepHash(fs.Step, o.state.Variables)
+		if currentExec == nil {
+			job := &p.Stages[fs.StageIndex].Jobs[fs.JobIndex]
+			exec := o.factory(workDir)
+			currentKey = key
+			currentExec = exec
+			o.registerExecutor(key, exec)
 
-		if o.cache[hash] {
-			o.updateStep(i, func(st *StepState) { st.Status = pipeline.StepStatusCached })
-			o.sink("step:cached", i)
-			continue
+			setupCh := make(chan string, 100)
+			go func() {
+				for line := range setupCh {
+					o.sink("setup:log", line)
+				}
+			}()
+			setupCh <- fmt.Sprintf("[stepthrough] setting up job %s", fs.JobName)
+			err := exec.Setup(ctx, p, job, containerNameForJob(fs), setupCh)
+			close(setupCh)
+			if err != nil {
+				o.sink("pipeline:setup-error", err.Error())
+				return
+			}
 		}
 
 		o.updateStep(i, func(st *StepState) { st.Status = pipeline.StepStatusRunning })
@@ -252,7 +271,7 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 			}
 		}(i)
 
-		result := exec.RunStep(ctx, fs.Step, logCh)
+		result := currentExec.RunStep(ctx, fs.Step, logCh)
 		close(logCh)
 
 		status := pipeline.StepStatusPassed
@@ -269,12 +288,35 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 		})
 		o.sink("step:done", i)
 
-		if status == pipeline.StepStatusPassed || status == pipeline.StepStatusSkipped {
-			o.cache[hash] = true
-		} else if !fs.Step.ContinueOnError {
+		if status != pipeline.StepStatusPassed && status != pipeline.StepStatusSkipped && !fs.Step.ContinueOnError {
 			return
 		}
 	}
+}
+
+func (o *Orchestrator) registerExecutor(key string, exec Executor) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.activeExecutors[key] = exec
+}
+
+func (o *Orchestrator) unregisterExecutor(key string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if _, ok := o.activeExecutors[key]; !ok {
+		return false
+	}
+	delete(o.activeExecutors, key)
+	return true
+}
+
+func (o *Orchestrator) drainActiveExecutorsLocked() []Executor {
+	executors := make([]Executor, 0, len(o.activeExecutors))
+	for key, exec := range o.activeExecutors {
+		executors = append(executors, exec)
+		delete(o.activeExecutors, key)
+	}
+	return executors
 }
 
 func (o *Orchestrator) updateStep(idx int, fn func(*StepState)) {
@@ -306,30 +348,12 @@ func buildStepStates(p *pipeline.Pipeline) []StepState {
 	return states
 }
 
-func findFirstJob(p *pipeline.Pipeline) *pipeline.Job {
-	for si := range p.Stages {
-		if len(p.Stages[si].Jobs) > 0 {
-			return &p.Stages[si].Jobs[0]
-		}
-	}
-	return nil
+func jobRuntimeKey(fs pipeline.FlatStep) string {
+	return fmt.Sprintf("stage-%d-job-%d", fs.StageIndex, fs.JobIndex)
 }
 
-func stepHash(step *pipeline.Step, vars map[string]string) string {
-	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|%s|%v", step.Task, step.Script, step.Bash, step.Pwsh, step.Inputs)
-	stepText := fmt.Sprintf("%v %s %s %s %v", step.Inputs, step.Script, step.Bash, step.Pwsh, step.Env)
-	varRef := regexp.MustCompile(`\$\((\w+)\)|\$\{?(\w+)\}?`)
-	for _, m := range varRef.FindAllStringSubmatch(stepText, -1) {
-		name := m[1]
-		if name == "" {
-			name = m[2]
-		}
-		if v, ok := vars[name]; ok {
-			fmt.Fprintf(h, "|%s=%s", name, v)
-		}
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
+func containerNameForJob(fs pipeline.FlatStep) string {
+	return fmt.Sprintf("stepthrough-run-s%d-j%d", fs.StageIndex, fs.JobIndex)
 }
 
 func workspaceRoot(filePath string) string {

@@ -6,6 +6,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/colecarlson/stepthrough/orchestrator"
+	"github.com/colecarlson/stepthrough/runner"
 )
 
 // PipelineService is the Wails-registered adapter over Orchestrator.
@@ -51,6 +52,10 @@ func (s *PipelineService) CancelRun() {
 
 func (s *PipelineService) InvalidateFrom(idx int) {
 	s.orch.InvalidateFrom(idx)
+}
+
+func (s *PipelineService) CheckDockerReady() bool {
+	return runner.IsDockerAvailable()
 }
 
 func (s *PipelineService) Cleanup() {

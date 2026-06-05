@@ -9,7 +9,7 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  goVersion: '1.25'
+  goVersion: "1.25.4"
 
 stages:
   - stage: Lint
@@ -21,16 +21,15 @@ stages:
           - checkout: self
             displayName: Checkout source
 
-          - script: |
-              GO_VERSION=$(curl -fsSL "https://go.dev/VERSION?m=text" | head -1)
-              echo "Installing $GO_VERSION..."
-              curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
-              tar -xzf /tmp/go.tar.gz -C /usr/local
-              /usr/local/go/bin/go version
+          - task: GoTool@0
             displayName: Install Go
+            inputs:
+              version: "$(goVersion)"
+
+          - script: go version
+            displayName: Verify Go
 
           - script: |
-              export PATH=$PATH:/usr/local/go/bin
               unformatted=$(gofmt -l $(find "$BUILD_SOURCESDIRECTORY" -name '*.go' -not -path '*/frontend/*'))
               if [ -n "$unformatted" ]; then
                 echo "Unformatted files:"
@@ -41,7 +40,6 @@ stages:
             displayName: Check formatting (gofmt)
 
           - script: |
-              export PATH=$PATH:/usr/local/go/bin
               go -C "$BUILD_SOURCESDIRECTORY" vet -tags=server ./...
               echo "go vet passed."
             displayName: Vet (go vet)
@@ -56,8 +54,12 @@ stages:
           - checkout: self
             displayName: Checkout source
 
+          - task: GoTool@0
+            displayName: Install Go
+            inputs:
+              version: "$(goVersion)"
+
           - script: |
-              export PATH=$PATH:/usr/local/go/bin
               go -C "$BUILD_SOURCESDIRECTORY" build -tags=server ./...
               echo "Build successful."
             displayName: Build (go build)
@@ -72,18 +74,20 @@ stages:
           - checkout: self
             displayName: Checkout source
 
+          - task: GoTool@0
+            displayName: Install Go
+            inputs:
+              version: "$(goVersion)"
+
           - script: |
-              export PATH=$PATH:/usr/local/go/bin
               go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./pipeline/... -v -count=1
             displayName: Pipeline parser tests
 
           - script: |
-              export PATH=$PATH:/usr/local/go/bin
               go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./runner/... -v -count=1
             displayName: Runner tests
 
           - script: |
-              export PATH=$PATH:/usr/local/go/bin
               go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./... -count=1 -coverprofile=coverage.out
               go -C "$BUILD_SOURCESDIRECTORY" tool cover -func=coverage.out | tail -1
             displayName: Coverage report
@@ -99,8 +103,8 @@ stages:
           runOnce:
             deploy:
               steps:
-                - script: echo "Deploying to staging…"
+                - script: echo "Deploying to staging..."
                   displayName: Deploy
 
-                - script: echo "Running smoke tests…"
+                - script: echo "Running smoke tests..."
                   displayName: Smoke test

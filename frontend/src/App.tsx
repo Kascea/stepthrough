@@ -12,6 +12,8 @@ import ErrorScreen from './components/ErrorScreen'
 interface AppState {
   pipeline: PipelineState | null
   parseError: string | null
+  setupError: string | null
+  dockerReady: boolean | null
   selectedStep: number | null
   logs: Record<number, string[]>
   setupLogs: string[]
@@ -22,6 +24,8 @@ type AppAction =
   | { type: 'pipeline:loaded'; payload: PipelineState }
   | { type: 'pipeline:synced'; payload: PipelineState }
   | { type: 'pipeline:error'; payload: string }
+  | { type: 'pipeline:setup-error'; payload: string }
+  | { type: 'docker:status'; payload: boolean }
   | { type: 'step:started'; payload: number }
   | { type: 'step:log'; payload: LogLine }
   | { type: 'step:cached'; payload: number }
@@ -32,6 +36,8 @@ type AppAction =
 const initialState: AppState = {
   pipeline: null,
   parseError: null,
+  setupError: null,
+  dockerReady: null,
   selectedStep: null,
   logs: {},
   setupLogs: [],
@@ -44,6 +50,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         pipeline: action.payload,
         parseError: null,
+        setupError: null,
+        dockerReady: state.dockerReady,
         selectedStep: null,
         logs: {},
         setupLogs: [],
@@ -61,6 +69,17 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         parseError: action.payload,
         isSettingUp: false,
+      }
+    case 'pipeline:setup-error':
+      return {
+        ...state,
+        setupError: action.payload,
+        isSettingUp: false,
+      }
+    case 'docker:status':
+      return {
+        ...state,
+        dockerReady: action.payload,
       }
     case 'step:started': {
       if (!state.pipeline) return state
@@ -118,6 +137,19 @@ function reducer(state: AppState, action: AppAction): AppState {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
 
+  // Poll Docker availability every 2s until it's confirmed ready.
+  useEffect(() => {
+    if (state.dockerReady === true) return
+    const check = () => {
+      Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.CheckDockerReady')
+        .then((ready: boolean) => dispatch({ type: 'docker:status', payload: ready }))
+        .catch(() => dispatch({ type: 'docker:status', payload: false }))
+    }
+    check()
+    const id = setInterval(check, 2000)
+    return () => clearInterval(id)
+  }, [state.dockerReady])
+
   useEffect(() => {
     const unsubs = [
       Events.On('pipeline:loaded', (event: any) => {
@@ -125,6 +157,9 @@ export default function App() {
       }),
       Events.On('pipeline:error', (event: any) => {
         dispatch({ type: 'pipeline:error', payload: event.data as string })
+      }),
+      Events.On('pipeline:setup-error', (event: any) => {
+        dispatch({ type: 'pipeline:setup-error', payload: event.data as string })
       }),
       Events.On('step:started', (event: any) => {
         dispatch({ type: 'step:started', payload: event.data as number })
@@ -162,12 +197,26 @@ export default function App() {
   if (state.parseError) return <ErrorScreen error={state.parseError} />
 
   if (!state.pipeline) {
-    return <SplashScreen onOpen={openFile} setupLogs={state.setupLogs} isSettingUp={state.isSettingUp} />
+    return (
+      <SplashScreen
+        onOpen={openFile}
+        setupLogs={state.setupLogs}
+        isSettingUp={state.isSettingUp}
+        dockerReady={state.dockerReady}
+        setupError={state.setupError}
+      />
+    )
   }
 
   return (
     <div className="app">
       <Topbar state={state.pipeline} />
+      {state.setupError && (
+        <div className="setup-error-banner">
+          <span className="setup-error-icon">!</span>
+          {state.setupError}
+        </div>
+      )}
       <div className="layout">
         <Sidebar
           steps={state.pipeline.steps ?? []}
