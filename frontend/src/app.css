@@ -63,34 +63,239 @@ body {
   background: #ffffff;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 16px 0 80px;
+  gap: 0;
+  padding: 0 10px 0 80px;
   flex-shrink: 0;
   -webkit-app-region: drag;
 }
 
-.topbar-title {
+.topbar-brand {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--blue);
+  padding-right: 12px;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
 }
 
-.topbar-sep {
-  color: var(--border-strong);
-  -webkit-app-region: no-drag;
-}
+/* ── Tab strip ────────────────────────────────── */
 
-.topbar-file {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-family: "Cascadia Mono", "Consolas", monospace;
+.tab-strip {
+  display: flex;
+  align-items: stretch;
   flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-app-region: no-drag;
+}
+
+.tab-strip::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  height: var(--topbar-h);
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.tab:hover { background: var(--bg-hover); }
+
+.tab-active {
+  background: var(--bg-panel-alt);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab-active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--blue);
+}
+
+.tab-label {
+  font-family: "Cascadia Mono", "Consolas", monospace;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.tab-close {
+  opacity: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.tab:hover .tab-close,
+.tab-active .tab-close { opacity: 1; }
+
+.tab-close:hover {
+  background: var(--bg-hover);
+  color: var(--red);
+}
+
+.tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: var(--topbar-h);
+  border: none;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
   -webkit-app-region: no-drag;
 }
+
+.tab-add:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* ── Status dots on tabs ──────────────────────── */
+
+.tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--border-strong);
+}
+
+.tab-dot-passed    { background: var(--green); }
+.tab-dot-failed    { background: var(--red); }
+.tab-dot-running   { background: var(--blue); animation: st-pulse 1s ease-in-out infinite; }
+.tab-dot-cached    { background: var(--teal); }
+.tab-dot-missing   { background: #f7b731; }
+.tab-dot-error     { background: var(--red); }
+.tab-dot-pending   { background: var(--border-strong); }
+
+/* ── Topbar actions (Run / Cancel) ────────────── */
+
+.topbar-actions {
+  flex-shrink: 0;
+  padding-left: 10px;
+  -webkit-app-region: no-drag;
+}
+
+.run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: 1px solid var(--blue-dark);
+  background: var(--blue);
+  color: #fff;
+  border-radius: 2px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.run-btn:hover:not(:disabled) { background: var(--blue-dark); }
+
+.run-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.run-btn-cancel {
+  background: var(--red-soft);
+  border-color: #f1707b;
+  color: var(--red);
+}
+
+.run-btn-cancel:hover { background: #fdd; }
+
+.run-spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid #f1707b;
+  border-top-color: var(--red);
+  animation: st-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── File-missing banner ──────────────────────── */
+
+.missing-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 34px;
+  border-bottom: 1px solid #f0d060;
+  background: #fffbea;
+  color: #7a6000;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.missing-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f7b731;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.missing-locate-btn {
+  margin-left: 8px;
+  padding: 3px 10px;
+  border: 1px solid #c9a800;
+  background: #fff8d0;
+  color: #7a6000;
+  border-radius: 2px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.missing-locate-btn:hover { background: #fff3a0; }
 
 .badge {
   display: inline-flex;

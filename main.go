@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/colecarlson/stepthrough/orchestrator"
 	"github.com/colecarlson/stepthrough/runner"
 	"github.com/colecarlson/stepthrough/service"
+	"github.com/colecarlson/stepthrough/session"
 )
 
 //go:embed all:frontend/dist
@@ -29,16 +31,14 @@ func main() {
 
 	pipelineSvc := service.NewPipelineService(factory)
 
-	// emit is defined before the app so it can be injected into services,
-	// but it captures app by pointer so calls made at runtime see the live instance.
 	var app *application.App
-	emit := func(event string, data any) {
+	sysEmit := func(event string, data any) {
 		if app != nil {
 			app.Event.Emit(event, data)
 		}
 	}
 
-	watcherSvc := service.NewWatcherService(pipelineSvc, emit)
+	watcherSvc := service.NewWatcherService(pipelineSvc, sysEmit)
 	uiSvc := service.NewUIService(watcherSvc)
 
 	app = application.New(application.Options{
@@ -74,9 +74,33 @@ func main() {
 	})
 
 	if pipelineFile != "" {
+		// CLI arg mode: open one file, ignore saved session.
+		pipelineSvc.SetPendingFile(pipelineFile)
 		go func() {
-			if err := watcherSvc.Watch(pipelineFile); err != nil {
+			// Give the frontend time to mount and register event listeners.
+			time.Sleep(400 * time.Millisecond)
+			if err := watcherSvc.AddWatch(pipelineFile); err != nil {
 				log.Printf("watcher error: %v", err)
+			}
+		}()
+	} else {
+		// Session restore mode: validate saved files after the frontend mounts.
+		go func() {
+			time.Sleep(400 * time.Millisecond)
+			sess := session.Load()
+			for _, file := range sess.TabOrder {
+				// RestoreTab creates the orchestrator and emits pipeline:loaded or pipeline:missing.
+				// It does NOT auto-run — the user decides when to run.
+				pipelineSvc.RestoreTab(file)
+
+				// For files that exist, start the hot-reload watcher.
+				// AddWatch is a no-op for the initial load (EnsureTab returns false since
+				// RestoreTab already created the orchestrator).
+				if _, err := os.Stat(file); err == nil {
+					if err := watcherSvc.AddWatch(file); err != nil {
+						log.Printf("watcher error for %s: %v", file, err)
+					}
+				}
 			}
 		}()
 	}

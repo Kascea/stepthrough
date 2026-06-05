@@ -1,4 +1,11 @@
-export type StepStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped' | 'cached'
+export type StepStatus =
+  | 'pending'
+  | 'running'
+  | 'passed'
+  | 'failed'
+  | 'skipped'
+  | 'cached'
+  | 'deployment'
 
 export interface StepState {
   index: number
@@ -9,6 +16,7 @@ export interface StepState {
   status: StepStatus
   exitCode: number
   durationMs: number
+  isDeploymentJob?: boolean
 }
 
 export interface PipelineState {
@@ -24,6 +32,39 @@ export interface PipelineState {
 export interface LogLine {
   stepIndex: number
   line: string
+}
+
+// Wraps every pipeline event with the file it originated from.
+export interface PipelineFileEvent<T = unknown> {
+  file: string
+  data: T
+}
+
+// One saved run entry from the session file.
+export interface SavedRun {
+  steps: StepState[]
+  logs: Record<string, string[]> // step index string → lines
+  ranAt: string
+}
+
+// Returned by PipelineService.GetSession on startup.
+export interface SessionData {
+  tabOrder: string[]
+  activeFile: string
+  runs: Record<string, SavedRun>
+}
+
+// Frontend state for a single pipeline tab.
+export interface TabState {
+  file: string
+  pipeline: PipelineState | null
+  missing: boolean
+  parseError: string | null
+  setupError: string | null
+  selectedStep: number | null
+  logs: Record<number, string[]>
+  setupLogs: string[]
+  isSettingUp: boolean
 }
 
 export function groupSteps(steps: StepState[]) {
@@ -55,4 +96,14 @@ export function formatDuration(ms: number) {
   if (ms < 1000) return `${ms}ms`
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
+}
+
+export function basename(filePath: string): string {
+  return filePath.split('/').pop() ?? filePath
+}
+
+// Derive a display status for a tab (for the tab strip dot).
+export function tabStatus(tab: TabState): StepStatus {
+  if (!tab.pipeline || !tab.pipeline.steps.length) return 'pending'
+  return stageStatus(tab.pipeline.steps)
 }

@@ -1,17 +1,68 @@
-import { PipelineState } from '../types'
+import { TabState, basename, tabStatus } from '../types'
 
 interface Props {
-  state: PipelineState
+  tabs: TabState[]
+  activeFile: string | null
+  onAdd: () => void
+  onClose: (file: string) => void
+  onSwitch: (file: string) => void
+  onRun: () => void
+  onCancel: () => void
+  running?: boolean
+  missing?: boolean
 }
 
-export default function Topbar({ state }: Props) {
-  const filename = state.file.split('/').pop() ?? state.file
+function StatusDot({ tab }: { tab: TabState }) {
+  if (tab.missing) return <span className="tab-dot tab-dot-missing" title="File not found" />
+  if (tab.parseError) return <span className="tab-dot tab-dot-error" title="Parse error" />
+  const s = tabStatus(tab)
+  return <span className={`tab-dot tab-dot-${s}`} />
+}
 
+export default function Topbar({ tabs, activeFile, onAdd, onClose, onSwitch, onRun, onCancel, running, missing }: Props) {
   return (
     <header className="topbar">
-      <span className="topbar-title">stepthrough</span>
-      <span className="topbar-sep">/</span>
-      <span className="topbar-file">{filename}</span>
+      <span className="topbar-brand">stepthrough</span>
+
+      <div className="tab-strip">
+        {tabs.map(tab => {
+          const active = tab.file === activeFile
+          return (
+            <button
+              key={tab.file}
+              className={`tab ${active ? 'tab-active' : ''}`}
+              onClick={() => onSwitch(tab.file)}
+              title={tab.file}
+            >
+              <StatusDot tab={tab} />
+              <span className="tab-label">{basename(tab.file)}</span>
+              <span
+                className="tab-close"
+                role="button"
+                onClick={e => { e.stopPropagation(); onClose(tab.file) }}
+                title="Close"
+              >
+                ×
+              </span>
+            </button>
+          )
+        })}
+        <button className="tab-add" onClick={onAdd} title="Open pipeline file">
+          +
+        </button>
+      </div>
+
+      <div className="topbar-actions">
+        {running ? (
+          <button className="run-btn run-btn-cancel" onClick={onCancel}>
+            <span className="run-spinner" /> Cancel
+          </button>
+        ) : (
+          <button className="run-btn" onClick={onRun} disabled={missing}>
+            ▶ Run
+          </button>
+        )}
+      </div>
     </header>
   )
 }

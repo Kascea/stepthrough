@@ -1,5 +1,5 @@
 interface Props {
-  onOpen: () => void
+  onOpen?: () => void
   setupLogs: string[]
   isSettingUp: boolean
   dockerReady: boolean | null
@@ -45,7 +45,7 @@ export default function SplashScreen({ onOpen, setupLogs, isSettingUp, dockerRea
         <div className="docker-hint docker-hint-error">{setupError}</div>
       )}
 
-      <button className="open-btn" onClick={onOpen} disabled={dockerBlocked}>
+      <button className="open-btn" onClick={onOpen} disabled={dockerBlocked || !onOpen}>
         Open pipeline file...
       </button>
 
