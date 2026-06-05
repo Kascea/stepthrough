@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TabState, PipelineState, SavedRun } from '../types'
+import { TabState, SavedRun, PipelineState, PipelineFileEvent } from '../types'
 
 // Inline the reducer types and logic so tests have no dependency on
 // @wailsio/runtime (which is only available in a Wails webview).
@@ -141,6 +141,45 @@ describe('session:restored', () => {
     })
     expect(result.tabs[0].pipeline).toBeNull()
     expect(result.tabs[0].logs).toEqual({})
+  })
+})
+
+// ── step:done applies full PipelineState from event payload (no RPC round-trip) ─
+
+describe('step:done', () => {
+  function applyStepDone(state: AppState, event: PipelineFileEvent<PipelineState>): AppState {
+    const { file, data: pipeline } = event
+    return {
+      ...state,
+      tabs: state.tabs.map(t => t.file === file ? { ...t, pipeline: { ...pipeline } } : t),
+    }
+  }
+
+  it('updates tab pipeline state directly from event payload', () => {
+    const file = '/pipeline.yml'
+    const initial: AppState = {
+      ...initialState,
+      tabs: [{ ...emptyTab(file), pipeline: { file, valid: true, error: '', steps: [
+        { index: 0, stageName: 'S', jobName: 'J', label: 'step', type: 'script', status: 'running', exitCode: 0, durationMs: 0 },
+      ], variables: {}, safeMode: false, running: true } }],
+      activeFile: file,
+    }
+    const updatedPipeline: PipelineState = {
+      file, valid: true, error: '', running: false, safeMode: false, variables: {},
+      steps: [
+        { index: 0, stageName: 'S', jobName: 'J', label: 'step', type: 'script', status: 'passed', exitCode: 0, durationMs: 420 },
+      ],
+    }
+    const result = applyStepDone(initial, { file, data: updatedPipeline })
+    expect(result.tabs[0].pipeline?.steps[0].status).toBe('passed')
+    expect(result.tabs[0].pipeline?.steps[0].durationMs).toBe(420)
+    expect(result.tabs[0].pipeline?.running).toBe(false)
+  })
+
+  it('is a no-op for an unknown file', () => {
+    const state: AppState = { ...initialState, tabs: [emptyTab('/other.yml')], activeFile: '/other.yml' }
+    const result = applyStepDone(state, { file: '/unknown.yml', data: { file: '/unknown.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false } })
+    expect(result.tabs[0].pipeline).toBeNull()
   })
 })
 

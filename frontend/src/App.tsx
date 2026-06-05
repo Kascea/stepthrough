@@ -36,7 +36,7 @@ type AppAction =
   | { type: 'step:started'; payload: PipelineFileEvent<number> }
   | { type: 'step:log'; payload: PipelineFileEvent<LogLine> }
   | { type: 'step:cached'; payload: PipelineFileEvent<number> }
-  | { type: 'step:done'; payload: { file: string; pipeline: PipelineState } }
+  | { type: 'step:done'; payload: PipelineFileEvent<PipelineState> }
   | { type: 'pipeline:done'; payload: PipelineFileEvent<PipelineState> }
   | { type: 'setup:log'; payload: PipelineFileEvent<string> }
   | { type: 'step:selected'; payload: { file: string; index: number } }
@@ -235,7 +235,7 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'step:done': {
-      const { file, pipeline } = action.payload
+      const { file, data: pipeline } = action.payload
       return {
         ...state,
         tabs: updateTab(state.tabs, file, t => ({
@@ -332,13 +332,9 @@ export default function App() {
       Events.On('step:cached', unwrap<number>(e =>
         dispatch({ type: 'step:cached', payload: e })
       )),
-      Events.On('step:done', unwrap<number>(e => {
-        Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.GetPipelineState', e.file)
-          .then((pipeline: PipelineState) =>
-            dispatch({ type: 'step:done', payload: { file: e.file, pipeline } })
-          )
-          .catch(console.error)
-      })),
+      Events.On('step:done', unwrap<PipelineState>(e =>
+        dispatch({ type: 'step:done', payload: e })
+      )),
       Events.On('pipeline:done', unwrap<PipelineState>(e =>
         dispatch({ type: 'pipeline:done', payload: e })
       )),

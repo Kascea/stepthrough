@@ -7,7 +7,8 @@
       "Bash(brew install *)",
       "Bash(go install *)",
       "Bash(kill %1)",
-      "Bash(pkill -f \"wails3 dev\")"
+      "Bash(pkill -f \"wails3 dev\")",
+      "Bash(go test *)"
     ]
   }
 }

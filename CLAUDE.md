@@ -1,5 +1,7 @@
 # stepthrough — Claude guidance
 
+> **Before making any structural changes, read [`ARCHITECTURE.md`](ARCHITECTURE.md).** It tracks the module map, known architectural debt, and decisions not to relitigate.
+
 ## Project overview
 
 Desktop app (Wails v3 + React/TypeScript) for running Azure Pipelines locally with hot-refresh. Go backend manages Docker containers and pipeline execution; React frontend renders pipeline state via Wails events.

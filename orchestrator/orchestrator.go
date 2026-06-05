@@ -235,7 +235,7 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 			}(i)
 			logCh <- "[stepthrough] deployment jobs are not executed locally — skipping"
 			close(logCh)
-			o.sink("step:done", i)
+			o.sink("step:done", o.GetState())
 			continue
 		}
 
@@ -286,7 +286,7 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 			st.ExitCode = result.ExitCode
 			st.DurationMs = result.Duration.Milliseconds()
 		})
-		o.sink("step:done", i)
+		o.sink("step:done", o.GetState())
 
 		if status != pipeline.StepStatusPassed && status != pipeline.StepStatusSkipped && !fs.Step.ContinueOnError {
 			return
