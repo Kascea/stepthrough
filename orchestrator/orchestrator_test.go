@@ -246,6 +246,94 @@ steps:
 	}
 }
 
+func TestRunFromEmitsPipelineLoadedWithPendingStepsBeforeExecution(t *testing.T) {
+	file := writePipeline(t, `
+pool:
+  vmImage: ubuntu-latest
+steps:
+  - script: echo one
+    displayName: One
+  - script: echo two
+    displayName: Two
+`)
+
+	factory := &recordingFactory{}
+
+	type namedEvent struct {
+		name string
+		data any
+	}
+	var mu sync.Mutex
+	var captured []namedEvent
+	doneCh := make(chan struct{})
+	var once sync.Once
+	sink := func(name string, data any) {
+		mu.Lock()
+		captured = append(captured, namedEvent{name, data})
+		mu.Unlock()
+		if name == "pipeline:done" {
+			once.Do(func() { close(doneCh) })
+		}
+	}
+
+	orch := New(factory.newExecutor, sink)
+	orch.LoadPipeline(file)
+
+	// First run — steps complete as passed.
+	orch.RunFrom(0)
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first pipeline:done")
+	}
+
+	// Reset for second run.
+	once = sync.Once{}
+	doneCh = make(chan struct{})
+	mu.Lock()
+	captured = captured[:0]
+	mu.Unlock()
+
+	orch.RunFrom(0)
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second pipeline:done")
+	}
+
+	mu.Lock()
+	events := append([]namedEvent(nil), captured...)
+	mu.Unlock()
+
+	// The very first event on rerun must be pipeline:loaded with all steps pending.
+	if len(events) == 0 {
+		t.Fatal("no events emitted on rerun")
+	}
+	first := events[0]
+	if first.name != "pipeline:loaded" {
+		t.Fatalf("first event on rerun = %q, want \"pipeline:loaded\"", first.name)
+	}
+	state, ok := first.data.(PipelineState)
+	if !ok {
+		t.Fatalf("pipeline:loaded data is %T, want PipelineState", first.data)
+	}
+	for _, s := range state.Steps {
+		if s.Status != pipeline.StepStatusPending {
+			t.Errorf("step %d status = %q on rerun pipeline:loaded, want %q", s.Index, s.Status, pipeline.StepStatusPending)
+		}
+	}
+
+	// pipeline:loaded must precede any step:started events.
+	for i, e := range events[1:] {
+		if e.name == "step:started" {
+			break
+		}
+		if e.name == "pipeline:loaded" {
+			t.Errorf("unexpected second pipeline:loaded at position %d before step:started", i+1)
+		}
+	}
+}
+
 func writePipeline(t *testing.T, contents string) string {
 	t.Helper()
 	dir := t.TempDir()

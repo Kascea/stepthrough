@@ -38,13 +38,13 @@ All events are wrapped as `PipelineFileEvent{File, Data}` so the frontend can ro
 
 ## Known architectural debt
 
-### #1 · Split `PipelineService` — **Strong** · not started
+### #1 · Split `PipelineService` — **Strong** · ✅ done
 
-**Files:** `service/pipeline.go` (517 lines), `service/watcher.go`, `session/session.go`
+**Files:** `service/pipeline.go`, `service/tab_manager.go` (new), `service/log_store.go` (new)
 
-`PipelineService` conflates five responsibilities: tab lifecycle, log capture, session persistence, event wrapping, and watcher coordination. Only 2 regression tests cover 517 lines.
+Extracted `tabManager` (orchestrators + tab order + activeFile, own mutex) and `logStore` (bounded log capture, own mutex). `pipeline.go` dropped from 361 → ~200 lines and is now a thin façade.
 
-**Plan:** Extract `TabManager` (tab lifecycle + orchestrator ownership), `LogStore` (bounded log capture), and `SessionPersister` (disk I/O). Keep `PipelineService` as a thin façade.
+**Key correctness fix included:** `GetSession` now calls `tabs.seedOrder()` (order only, no orchestrators) and `RestoreTab` calls `tabs.addOrch()` (orchestrator only, no order change), matching the original two-phase session restore sequence. `persistSession` now deletes runs based on tab order rather than orchestrator presence, preventing saved run data loss during the 400ms window before `RestoreTab` runs.
 
 ---
 
@@ -91,6 +91,31 @@ Bidirectional dependency: `PipelineService` calls `WatcherService.AddWatch()`; `
 **Fix:** Introduce `ScriptContext{vars}` with an `Expand(string) string` method. Thread it through the step resolution chain so expansion is enforced by the type system.
 
 ---
+
+## Tab lifecycle state machine
+
+Defined as `TabStatus` in [service/tab_manager.go](service/tab_manager.go) (Go) and as the `TabStatus` discriminated union in [frontend/src/types.ts](frontend/src/types.ts) (TypeScript). Both sides use the same five states. Transitions:
+
+```
+seedOrder / ensure / addOrch
+        │
+        ▼
+     Empty ──── RestoreTab (file missing) ──▶ Missing
+        │
+        │ RestoreTab / ReloadFile (parse ok)
+        ▼
+     Loaded ◀──────────────────────────────── pipeline:done
+        │                                          ▲
+        │ RunPipeline / ReloadFile (starts run)    │
+        ▼                                          │
+     Running ──────────────────────────────────────┘
+        │
+        │ pipeline:setup-error
+        ▼
+     Error ◀─── RestoreTab / ReloadFile (parse error)
+```
+
+`Missing` and `Error` are terminal for the current load; the user must relocate or fix the file (which goes through `ReloadFile` → `Loaded`/`Error`).
 
 ## Decisions not to relitigate
 

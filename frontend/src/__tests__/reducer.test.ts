@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TabState, SavedRun, PipelineState, PipelineFileEvent } from '../types'
+import { TabState, TabStatus, SavedRun, PipelineState, PipelineFileEvent } from '../types'
 
 // Inline the reducer types and logic so tests have no dependency on
 // @wailsio/runtime (which is only available in a Wails webview).
@@ -19,10 +19,7 @@ const initialState: AppState = {
 function emptyTab(file: string): TabState {
   return {
     file,
-    pipeline: null,
-    missing: false,
-    parseError: null,
-    setupError: null,
+    status: { kind: 'empty' },
     selectedStep: null,
     logs: {},
     setupLogs: [],
@@ -31,8 +28,7 @@ function emptyTab(file: string): TabState {
 }
 
 function tabFromSavedRun(file: string, run: SavedRun): TabState {
-  const tab = emptyTab(file)
-  tab.pipeline = {
+  const pipeline: PipelineState = {
     file,
     valid: true,
     error: '',
@@ -45,8 +41,18 @@ function tabFromSavedRun(file: string, run: SavedRun): TabState {
   for (const [k, v] of Object.entries(run.logs ?? {})) {
     logs[Number(k)] = v
   }
-  tab.logs = logs
-  return tab
+  return {
+    file,
+    status: { kind: 'loaded', pipeline },
+    selectedStep: null,
+    logs,
+    setupLogs: [],
+    isSettingUp: false,
+  }
+}
+
+function pipelineOf(status: TabStatus): PipelineState | null {
+  return status.kind === 'loaded' || status.kind === 'running' ? status.pipeline : null
 }
 
 type SessionRestoredPayload = {
@@ -55,7 +61,6 @@ type SessionRestoredPayload = {
   runs: Record<string, SavedRun>
 }
 
-// Mirrors the session:restored case in App.tsx reducer.
 function applySessionRestored(state: AppState, payload: SessionRestoredPayload): AppState {
   const { tabOrder, activeFile, runs } = payload
   if (!tabOrder?.length) return state
@@ -99,7 +104,7 @@ describe('session:restored', () => {
     expect(result).toBe(initialState)
   })
 
-  it('restores tabs with saved run data', () => {
+  it('restores tabs with saved run data using loaded status', () => {
     const savedRun: SavedRun = {
       steps: [
         {
@@ -119,9 +124,12 @@ describe('session:restored', () => {
 
     expect(result.tabs).toHaveLength(1)
     expect(result.activeFile).toBe('/path/to/pipeline.yml')
-    expect(result.tabs[0].pipeline?.steps).toHaveLength(1)
-    expect(result.tabs[0].pipeline?.steps[0].status).toBe('passed')
-    expect(result.tabs[0].logs[0]).toEqual(['step output'])
+    const tab = result.tabs[0]
+    expect(tab.status.kind).toBe('loaded')
+    const pipeline = pipelineOf(tab.status)
+    expect(pipeline?.steps).toHaveLength(1)
+    expect(pipeline?.steps[0].status).toBe('passed')
+    expect(tab.logs[0]).toEqual(['step output'])
   })
 
   it('uses first tab as active when activeFile is empty', () => {
@@ -139,7 +147,7 @@ describe('session:restored', () => {
       activeFile: '/unseen.yml',
       runs: {},
     })
-    expect(result.tabs[0].pipeline).toBeNull()
+    expect(result.tabs[0].status.kind).toBe('empty')
     expect(result.tabs[0].logs).toEqual({})
   })
 })
@@ -151,7 +159,9 @@ describe('step:done', () => {
     const { file, data: pipeline } = event
     return {
       ...state,
-      tabs: state.tabs.map(t => t.file === file ? { ...t, pipeline: { ...pipeline } } : t),
+      tabs: state.tabs.map(t =>
+        t.file === file ? { ...t, status: { kind: 'running', pipeline } } : t
+      ),
     }
   }
 
@@ -159,9 +169,13 @@ describe('step:done', () => {
     const file = '/pipeline.yml'
     const initial: AppState = {
       ...initialState,
-      tabs: [{ ...emptyTab(file), pipeline: { file, valid: true, error: '', steps: [
-        { index: 0, stageName: 'S', jobName: 'J', label: 'step', type: 'script', status: 'running', exitCode: 0, durationMs: 0 },
-      ], variables: {}, safeMode: false, running: true } }],
+      tabs: [{
+        ...emptyTab(file),
+        status: { kind: 'running', pipeline: {
+          file, valid: true, error: '', running: true, safeMode: false, variables: {},
+          steps: [{ index: 0, stageName: 'S', jobName: 'J', label: 'step', type: 'script', status: 'running', exitCode: 0, durationMs: 0 }],
+        }},
+      }],
       activeFile: file,
     }
     const updatedPipeline: PipelineState = {
@@ -171,15 +185,20 @@ describe('step:done', () => {
       ],
     }
     const result = applyStepDone(initial, { file, data: updatedPipeline })
-    expect(result.tabs[0].pipeline?.steps[0].status).toBe('passed')
-    expect(result.tabs[0].pipeline?.steps[0].durationMs).toBe(420)
-    expect(result.tabs[0].pipeline?.running).toBe(false)
+    const tab = result.tabs[0]
+    expect(tab.status.kind).toBe('running')
+    const pipeline = pipelineOf(tab.status)
+    expect(pipeline?.steps[0].status).toBe('passed')
+    expect(pipeline?.steps[0].durationMs).toBe(420)
   })
 
-  it('is a no-op for an unknown file', () => {
+  it('is a no-op for tabs with a different file', () => {
     const state: AppState = { ...initialState, tabs: [emptyTab('/other.yml')], activeFile: '/other.yml' }
-    const result = applyStepDone(state, { file: '/unknown.yml', data: { file: '/unknown.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false } })
-    expect(result.tabs[0].pipeline).toBeNull()
+    const result = applyStepDone(state, {
+      file: '/unknown.yml',
+      data: { file: '/unknown.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false },
+    })
+    expect(result.tabs[0].status.kind).toBe('empty')
   })
 })
 
@@ -208,5 +227,50 @@ describe('tab:added', () => {
     const result = applyTabAdded(withTab, '/existing.yml')
     expect(result.tabs).toHaveLength(1)
     expect(result.activeFile).toBe('/existing.yml')
+  })
+})
+
+// ── TabStatus discriminated union — impossible states are unrepresentable ─────
+
+describe('TabStatus', () => {
+  it('empty tab has no pipeline', () => {
+    const tab = emptyTab('/a.yml')
+    expect(tab.status.kind).toBe('empty')
+    expect(pipelineOf(tab.status)).toBeNull()
+  })
+
+  it('loaded tab exposes pipeline', () => {
+    const pipeline: PipelineState = {
+      file: '/a.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false,
+    }
+    const tab: TabState = { ...emptyTab('/a.yml'), status: { kind: 'loaded', pipeline } }
+    expect(pipelineOf(tab.status)).toBe(pipeline)
+  })
+
+  it('running tab exposes pipeline', () => {
+    const pipeline: PipelineState = {
+      file: '/a.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: true,
+    }
+    const tab: TabState = { ...emptyTab('/a.yml'), status: { kind: 'running', pipeline } }
+    expect(pipelineOf(tab.status)).toBe(pipeline)
+  })
+
+  it('missing tab has no pipeline', () => {
+    const tab: TabState = { ...emptyTab('/a.yml'), status: { kind: 'missing' } }
+    expect(pipelineOf(tab.status)).toBeNull()
+  })
+
+  it('error tab carries message, no pipeline', () => {
+    const tab: TabState = { ...emptyTab('/a.yml'), status: { kind: 'error', message: 'bad yaml' } }
+    expect(tab.status.kind).toBe('error')
+    if (tab.status.kind === 'error') expect(tab.status.message).toBe('bad yaml')
+    expect(pipelineOf(tab.status)).toBeNull()
+  })
+
+  it('setup-error tab carries message, no pipeline', () => {
+    const tab: TabState = { ...emptyTab('/a.yml'), status: { kind: 'setup-error', message: 'docker died' } }
+    expect(tab.status.kind).toBe('setup-error')
+    if (tab.status.kind === 'setup-error') expect(tab.status.message).toBe('docker died')
+    expect(pipelineOf(tab.status)).toBeNull()
   })
 })

@@ -54,13 +54,21 @@ export interface SessionData {
   runs: Record<string, SavedRun>
 }
 
+// Explicit lifecycle state for a pipeline tab — mirrors the backend TabStatus enum.
+// Using a discriminated union makes impossible combinations (e.g. missing + pipeline)
+// unrepresentable and lets TypeScript narrow access to status-specific data.
+export type TabStatus =
+  | { kind: 'empty' }
+  | { kind: 'loaded';      pipeline: PipelineState }
+  | { kind: 'running';     pipeline: PipelineState }
+  | { kind: 'missing' }
+  | { kind: 'error';       message: string }
+  | { kind: 'setup-error'; message: string }
+
 // Frontend state for a single pipeline tab.
 export interface TabState {
   file: string
-  pipeline: PipelineState | null
-  missing: boolean
-  parseError: string | null
-  setupError: string | null
+  status: TabStatus
   selectedStep: number | null
   logs: Record<number, string[]>
   setupLogs: string[]
@@ -104,6 +112,8 @@ export function basename(filePath: string): string {
 
 // Derive a display status for a tab (for the tab strip dot).
 export function tabStatus(tab: TabState): StepStatus {
-  if (!tab.pipeline || !tab.pipeline.steps.length) return 'pending'
-  return stageStatus(tab.pipeline.steps)
+  if (tab.status.kind !== 'loaded' && tab.status.kind !== 'running') return 'pending'
+  const { steps } = tab.status.pipeline
+  if (!steps.length) return 'pending'
+  return stageStatus(steps)
 }

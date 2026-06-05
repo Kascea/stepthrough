@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -22,30 +21,29 @@ type PipelineFileEvent struct {
 
 // SessionData is returned to the frontend on startup to restore tabs.
 type SessionData struct {
-	TabOrder   []string                   `json:"tabOrder"`
-	ActiveFile string                     `json:"activeFile"`
+	TabOrder   []string                    `json:"tabOrder"`
+	ActiveFile string                      `json:"activeFile"`
 	Runs       map[string]session.SavedRun `json:"runs"`
 }
 
-// PipelineService manages multiple pipeline tabs and their orchestrators.
+// PipelineService is a thin façade over tabManager and logStore.
+// It wires orchestrator event sinks, handles session persistence, and exposes
+// all Wails RPC methods. Structural logic lives in the sub-modules.
 type PipelineService struct {
 	app     *application.App
 	factory orchestrator.ExecutorFactory
+	tabs    *tabManager
+	logs    *logStore
 
-	mu            sync.Mutex
-	orchestrators map[string]*orchestrator.Orchestrator
-	tabOrder      []string
-	activeFile    string
-	savedLogs     map[string]map[string][]string // file → step-index-str → log lines
-
+	mu          sync.Mutex
 	pendingFile string // set by main.go for CLI arg mode
 }
 
 func NewPipelineService(factory orchestrator.ExecutorFactory) *PipelineService {
 	return &PipelineService{
-		factory:       factory,
-		orchestrators: make(map[string]*orchestrator.Orchestrator),
-		savedLogs:     make(map[string]map[string][]string),
+		factory: factory,
+		tabs:    newTabManager(),
+		logs:    newLogStore(),
 	}
 }
 
@@ -72,60 +70,41 @@ func (s *PipelineService) orchestratorSink(file string) orchestrator.EventSink {
 	return func(event string, data any) {
 		if event == "step:log" {
 			if ll, ok := data.(orchestrator.LogLine); ok {
-				s.captureLog(file, ll)
+				s.logs.capture(file, ll)
 			}
 		}
 		s.fileEmit(file, event, data)
-		if event == "pipeline:done" {
+		switch event {
+		case "pipeline:done":
+			s.tabs.setStatus(file, TabStatusLoaded)
 			go s.persistSession()
+		case "pipeline:setup-error":
+			s.tabs.setStatus(file, TabStatusError)
 		}
-	}
-}
-
-func (s *PipelineService) captureLog(file string, ll orchestrator.LogLine) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.savedLogs[file] == nil {
-		s.savedLogs[file] = make(map[string][]string)
-	}
-	key := strconv.Itoa(ll.StepIndex)
-	lines := s.savedLogs[file][key]
-	if len(lines) < session.MaxLogsPerStep {
-		s.savedLogs[file][key] = append(lines, ll.Line)
 	}
 }
 
 func (s *PipelineService) persistSession() {
-	s.mu.Lock()
-	tabOrder := make([]string, len(s.tabOrder))
-	copy(tabOrder, s.tabOrder)
-	activeFile := s.activeFile
-	orchSnap := make(map[string]*orchestrator.Orchestrator, len(s.orchestrators))
-	for k, v := range s.orchestrators {
-		orchSnap[k] = v
-	}
-	logsSnap := make(map[string]map[string][]string, len(s.savedLogs))
-	for k, v := range s.savedLogs {
-		cp := make(map[string][]string, len(v))
-		for sk, sv := range v {
-			cp[sk] = sv
-		}
-		logsSnap[k] = cp
-	}
-	s.mu.Unlock()
+	order, activeFile, orchs := s.tabs.snapshot()
+	logsSnap := s.logs.snapshot()
 
 	d := session.Load()
-	d.TabOrder = tabOrder
+	d.TabOrder = order
 	d.ActiveFile = activeFile
 
-	// Remove runs for closed tabs.
+	// Only remove runs for files no longer in the tab order — not merely
+	// for files without an orchestrator yet (e.g. restored but not yet run).
+	inOrder := make(map[string]bool, len(order))
+	for _, f := range order {
+		inOrder[f] = true
+	}
 	for file := range d.Runs {
-		if _, open := orchSnap[file]; !open {
+		if !inOrder[file] {
 			delete(d.Runs, file)
 		}
 	}
 
-	for file, orch := range orchSnap {
+	for file, orch := range orchs {
 		state := orch.GetState()
 		run := d.Runs[file]
 		run.Steps = state.Steps
@@ -138,17 +117,11 @@ func (s *PipelineService) persistSession() {
 }
 
 // GetSession returns saved session data so the frontend can restore tabs on startup.
-// Also initialises the service's tabOrder from the session so persistSession stays correct.
+// Seeds the tab order from the session so persistSession doesn't overwrite it with
+// an empty slice before RestoreTab has had a chance to create orchestrators.
 func (s *PipelineService) GetSession() SessionData {
 	d := session.Load()
-
-	s.mu.Lock()
-	if len(s.tabOrder) == 0 && len(d.TabOrder) > 0 {
-		s.tabOrder = make([]string, len(d.TabOrder))
-		copy(s.tabOrder, d.TabOrder)
-		s.activeFile = d.ActiveFile
-	}
-	s.mu.Unlock()
+	s.tabs.seedOrder(d.TabOrder, d.ActiveFile)
 
 	tabOrder := d.TabOrder
 	if tabOrder == nil {
@@ -164,137 +137,98 @@ func (s *PipelineService) GetSession() SessionData {
 // EnsureTab registers an orchestrator for file if one doesn't already exist.
 // Returns true if a new tab was created.
 func (s *PipelineService) EnsureTab(file string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, exists := s.orchestrators[file]; exists {
-		return false
-	}
-	orch := orchestrator.New(s.factory, s.orchestratorSink(file))
-	s.orchestrators[file] = orch
-	s.tabOrder = append(s.tabOrder, file)
-	s.activeFile = file
-	return true
+	created, _ := s.tabs.ensure(file, func() *orchestrator.Orchestrator {
+		return orchestrator.New(s.factory, s.orchestratorSink(file))
+	})
+	return created
 }
 
 // ReloadFile loads the pipeline YAML and, on success, runs from step 0.
 // Called by WatcherService for initial loads and hot-reloads.
 func (s *PipelineService) ReloadFile(file string) {
-	s.mu.Lock()
-	orch, ok := s.orchestrators[file]
-	s.mu.Unlock()
+	orch, ok := s.tabs.get(file)
 	if !ok {
 		return
 	}
 
 	state := orch.LoadPipeline(file)
 	if !state.Valid {
+		s.tabs.setStatus(file, TabStatusError)
 		s.fileEmit(file, "pipeline:error", state.Error)
 		return
 	}
 
-	s.mu.Lock()
-	s.savedLogs[file] = make(map[string][]string)
-	s.mu.Unlock()
-
+	s.logs.clear(file)
 	s.fileEmit(file, "pipeline:loaded", state)
+	s.tabs.setStatus(file, TabStatusRunning)
 	orch.RunFrom(0)
 }
 
 // RestoreTab creates an orchestrator for a session-restored file without running it.
 // Emits pipeline:loaded if the file is valid, or pipeline:missing if absent.
 func (s *PipelineService) RestoreTab(file string) {
-	s.mu.Lock()
-	if _, exists := s.orchestrators[file]; !exists {
-		orch := orchestrator.New(s.factory, s.orchestratorSink(file))
-		s.orchestrators[file] = orch
-	}
-	s.mu.Unlock()
-
-	s.mu.Lock()
-	orch := s.orchestrators[file]
-	s.mu.Unlock()
+	orch := s.tabs.addOrch(file, func() *orchestrator.Orchestrator {
+		return orchestrator.New(s.factory, s.orchestratorSink(file))
+	})
 
 	if _, err := os.Stat(file); os.IsNotExist(err) {
+		s.tabs.setStatus(file, TabStatusMissing)
 		s.fileEmit(file, "pipeline:missing", nil)
 		return
 	}
 
 	state := orch.LoadPipeline(file)
 	if !state.Valid {
+		s.tabs.setStatus(file, TabStatusError)
 		s.fileEmit(file, "pipeline:error", state.Error)
 		return
 	}
+	s.tabs.setStatus(file, TabStatusLoaded)
 	s.fileEmit(file, "pipeline:loaded", state)
 }
 
 // SetActiveTab records which tab is currently focused.
 func (s *PipelineService) SetActiveTab(file string) {
-	s.mu.Lock()
-	s.activeFile = file
-	s.mu.Unlock()
+	s.tabs.setActive(file)
 	go s.persistSession()
 }
 
 // RemoveTab closes a pipeline tab and cleans up its orchestrator.
 func (s *PipelineService) RemoveTab(file string) {
-	s.mu.Lock()
-	orch, ok := s.orchestrators[file]
+	orch, ok := s.tabs.remove(file)
 	if !ok {
-		s.mu.Unlock()
 		return
 	}
-	delete(s.orchestrators, file)
-	delete(s.savedLogs, file)
-	for i, f := range s.tabOrder {
-		if f == file {
-			s.tabOrder = append(s.tabOrder[:i], s.tabOrder[i+1:]...)
-			break
-		}
-	}
-	if s.activeFile == file {
-		if len(s.tabOrder) > 0 {
-			s.activeFile = s.tabOrder[0]
-		} else {
-			s.activeFile = ""
-		}
-	}
-	s.mu.Unlock()
-
+	s.logs.remove(file)
 	go func() {
-		orch.Cleanup(context.Background())
+		if orch != nil {
+			orch.Cleanup(context.Background())
+		}
 		s.persistSession()
 	}()
 }
 
 // RunPipeline starts running a specific pipeline from the given step index.
 func (s *PipelineService) RunPipeline(file string, startIndex int) {
-	s.mu.Lock()
-	orch, ok := s.orchestrators[file]
-	s.mu.Unlock()
+	orch, ok := s.tabs.get(file)
 	if !ok {
 		return
 	}
-	s.mu.Lock()
-	s.savedLogs[file] = make(map[string][]string)
-	s.mu.Unlock()
+	s.logs.clear(file)
+	s.tabs.setStatus(file, TabStatusRunning)
 	orch.RunFrom(startIndex)
 }
 
 // CancelPipeline cancels a running pipeline.
 func (s *PipelineService) CancelPipeline(file string) {
-	s.mu.Lock()
-	orch, ok := s.orchestrators[file]
-	s.mu.Unlock()
-	if ok {
+	if orch, ok := s.tabs.get(file); ok {
 		orch.CancelRun()
 	}
 }
 
 // GetPipelineState returns the current state of a specific pipeline.
 func (s *PipelineService) GetPipelineState(file string) orchestrator.PipelineState {
-	s.mu.Lock()
-	orch, ok := s.orchestrators[file]
-	s.mu.Unlock()
+	orch, ok := s.tabs.get(file)
 	if !ok {
 		return orchestrator.PipelineState{File: file}
 	}
@@ -303,40 +237,20 @@ func (s *PipelineService) GetPipelineState(file string) orchestrator.PipelineSta
 
 // InvalidatePipelineFrom marks steps at or after idx as pending.
 func (s *PipelineService) InvalidatePipelineFrom(file string, idx int) {
-	s.mu.Lock()
-	orch, ok := s.orchestrators[file]
-	s.mu.Unlock()
-	if ok {
+	if orch, ok := s.tabs.get(file); ok {
 		orch.InvalidateFrom(idx)
 	}
 }
 
 // RelocatePipeline updates a tab's file path when the user locates a moved file.
 func (s *PipelineService) RelocatePipeline(oldFile, newFile string) {
-	s.mu.Lock()
-	oldOrch, ok := s.orchestrators[oldFile]
+	oldOrch, ok := s.tabs.relocate(oldFile, newFile, func() *orchestrator.Orchestrator {
+		return orchestrator.New(s.factory, s.orchestratorSink(newFile))
+	})
 	if !ok {
-		s.mu.Unlock()
 		return
 	}
-	delete(s.orchestrators, oldFile)
-	newOrch := orchestrator.New(s.factory, s.orchestratorSink(newFile))
-	s.orchestrators[newFile] = newOrch
-	for i, f := range s.tabOrder {
-		if f == oldFile {
-			s.tabOrder[i] = newFile
-			break
-		}
-	}
-	if s.activeFile == oldFile {
-		s.activeFile = newFile
-	}
-	if logs, ok := s.savedLogs[oldFile]; ok {
-		s.savedLogs[newFile] = logs
-		delete(s.savedLogs, oldFile)
-	}
-	s.mu.Unlock()
-
+	s.logs.rename(oldFile, newFile)
 	go oldOrch.Cleanup(context.Background())
 	s.fileEmit(newFile, "pipeline:tab:relocated", map[string]string{"from": oldFile, "to": newFile})
 }
@@ -348,13 +262,7 @@ func (s *PipelineService) CheckDockerReady() bool {
 
 // Cleanup shuts down all orchestrators.
 func (s *PipelineService) Cleanup() {
-	s.mu.Lock()
-	orchs := make([]*orchestrator.Orchestrator, 0, len(s.orchestrators))
-	for _, orch := range s.orchestrators {
-		orchs = append(orchs, orch)
-	}
-	s.mu.Unlock()
-	for _, orch := range orchs {
+	for _, orch := range s.tabs.all() {
 		orch.Cleanup(context.Background())
 	}
 }

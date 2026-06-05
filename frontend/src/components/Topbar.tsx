@@ -13,8 +13,8 @@ interface Props {
 }
 
 function StatusDot({ tab }: { tab: TabState }) {
-  if (tab.missing) return <span className="tab-dot tab-dot-missing" title="File not found" />
-  if (tab.parseError) return <span className="tab-dot tab-dot-error" title="Parse error" />
+  if (tab.status.kind === 'missing') return <span className="tab-dot tab-dot-missing" title="File not found" />
+  if (tab.status.kind === 'error') return <span className="tab-dot tab-dot-error" title="Parse error" />
   const s = tabStatus(tab)
   return <span className={`tab-dot tab-dot-${s}`} />
 }

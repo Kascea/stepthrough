@@ -9,6 +9,7 @@ import {
   SessionData,
   SavedRun,
   TabState,
+  TabStatus,
 } from './types'
 import Topbar from './components/Topbar'
 import Sidebar from './components/Sidebar'
@@ -50,10 +51,7 @@ const initialState: AppState = {
 function emptyTab(file: string): TabState {
   return {
     file,
-    pipeline: null,
-    missing: false,
-    parseError: null,
-    setupError: null,
+    status: { kind: 'empty' },
     selectedStep: null,
     logs: {},
     setupLogs: [],
@@ -62,9 +60,7 @@ function emptyTab(file: string): TabState {
 }
 
 function tabFromSavedRun(file: string, run: SavedRun): TabState {
-  const tab = emptyTab(file)
-  // Restore last run's step statuses so the user sees their previous results immediately.
-  tab.pipeline = {
+  const pipeline: PipelineState = {
     file,
     valid: true,
     error: '',
@@ -73,17 +69,27 @@ function tabFromSavedRun(file: string, run: SavedRun): TabState {
     safeMode: true,
     running: false,
   }
-  // Restore logs keyed by numeric step index.
   const logs: Record<number, string[]> = {}
   for (const [k, v] of Object.entries(run.logs ?? {})) {
     logs[Number(k)] = v
   }
-  tab.logs = logs
-  return tab
+  return {
+    file,
+    status: { kind: 'loaded', pipeline },
+    selectedStep: null,
+    logs,
+    setupLogs: [],
+    isSettingUp: false,
+  }
 }
 
 function updateTab(tabs: TabState[], file: string, fn: (t: TabState) => TabState): TabState[] {
   return tabs.map(t => (t.file === file ? fn(t) : t))
+}
+
+// Returns the pipeline from a tab status if one is available.
+function pipelineOf(status: TabStatus): PipelineState | null {
+  return status.kind === 'loaded' || status.kind === 'running' ? status.pipeline : null
 }
 
 function reducer(state: AppState, action: AppAction): AppState {
@@ -103,7 +109,6 @@ function reducer(state: AppState, action: AppAction): AppState {
 
     case 'tab:added': {
       if (state.tabs.some(t => t.file === action.payload)) {
-        // Already exists (e.g. session-restored) — just switch to it.
         return { ...state, activeFile: action.payload }
       }
       return {
@@ -131,10 +136,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         tabs: updateTab(state.tabs, file, t => ({
           ...t,
-          pipeline,
-          missing: false,
-          parseError: null,
-          setupError: null,
+          status: { kind: 'loaded', pipeline },
           selectedStep: null,
           logs: {},
           setupLogs: [],
@@ -144,12 +146,12 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'pipeline:error': {
-      const { file, data: err } = action.payload
+      const { file, data: message } = action.payload
       return {
         ...state,
         tabs: updateTab(state.tabs, file, t => ({
           ...t,
-          parseError: err,
+          status: { kind: 'error', message },
           isSettingUp: false,
         })),
       }
@@ -159,17 +161,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       const { file } = action.payload
       return {
         ...state,
-        tabs: updateTab(state.tabs, file, t => ({ ...t, missing: true })),
+        tabs: updateTab(state.tabs, file, t => ({
+          ...t,
+          status: { kind: 'missing' },
+        })),
       }
     }
 
     case 'pipeline:setup-error': {
-      const { file, data: err } = action.payload
+      const { file, data: message } = action.payload
       return {
         ...state,
         tabs: updateTab(state.tabs, file, t => ({
           ...t,
-          setupError: err,
+          status: { kind: 'setup-error', message },
           isSettingUp: false,
         })),
       }
@@ -180,7 +185,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         tabs: state.tabs.map(t =>
-          t.file === from ? { ...t, file: to, missing: false } : t
+          t.file === from ? { ...t, file: to, status: { kind: 'empty' } } : t
         ),
         activeFile: state.activeFile === from ? to : state.activeFile,
       }
@@ -194,12 +199,13 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         tabs: updateTab(state.tabs, file, t => {
-          if (!t.pipeline) return t
-          const steps = [...t.pipeline.steps]
+          const pipeline = pipelineOf(t.status)
+          if (!pipeline) return t
+          const steps = [...pipeline.steps]
           steps[stepIndex] = { ...steps[stepIndex], status: 'running' }
           return {
             ...t,
-            pipeline: { ...t.pipeline, steps, running: true },
+            status: { kind: 'running', pipeline: { ...pipeline, steps, running: true } },
             selectedStep: stepIndex,
             isSettingUp: false,
           }
@@ -226,10 +232,10 @@ function reducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         tabs: updateTab(state.tabs, file, t => {
-          if (!t.pipeline) return t
-          const steps = [...t.pipeline.steps]
+          if (t.status.kind !== 'loaded' && t.status.kind !== 'running') return t
+          const steps = [...t.status.pipeline.steps]
           steps[stepIndex] = { ...steps[stepIndex], status: 'cached' }
-          return { ...t, pipeline: { ...t.pipeline, steps } }
+          return { ...t, status: { ...t.status, pipeline: { ...t.status.pipeline, steps } } }
         }),
       }
     }
@@ -240,7 +246,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         tabs: updateTab(state.tabs, file, t => ({
           ...t,
-          pipeline: { ...pipeline },
+          status: { kind: 'running', pipeline },
         })),
       }
     }
@@ -251,7 +257,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         ...state,
         tabs: updateTab(state.tabs, file, t => ({
           ...t,
-          pipeline,
+          status: { kind: 'loaded', pipeline },
           isSettingUp: false,
         })),
       }
@@ -261,12 +267,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       const { file, data: line } = action.payload
       return {
         ...state,
-        tabs: updateTab(state.tabs, file, t => ({
-          ...t,
-          isSettingUp: true,
-          selectedStep: null,
-          setupLogs: [...t.setupLogs, line],
-        })),
+        tabs: updateTab(state.tabs, file, t => {
+          // Transition loaded → running when setup begins so the Cancel button appears.
+          const newStatus: TabStatus =
+            t.status.kind === 'loaded'
+              ? { kind: 'running', pipeline: t.status.pipeline }
+              : t.status
+          return {
+            ...t,
+            status: newStatus,
+            isSettingUp: true,
+            selectedStep: null,
+            setupLogs: [...t.setupLogs, line],
+          }
+        }),
       }
     }
 
@@ -286,7 +300,6 @@ function reducer(state: AppState, action: AppAction): AppState {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
 
-  // Poll Docker availability every 2s until confirmed ready.
   useEffect(() => {
     if (state.dockerReady === true) return
     const check = () => {
@@ -299,7 +312,6 @@ export default function App() {
     return () => clearInterval(id)
   }, [state.dockerReady])
 
-  // Register all pipeline event listeners then restore session.
   useEffect(() => {
     const unwrap = <T,>(handler: (e: PipelineFileEvent<T>) => void) =>
       (event: any) => handler(event.data as PipelineFileEvent<T>)
@@ -343,7 +355,6 @@ export default function App() {
       )),
     ]
 
-    // Restore previous session after listeners are registered.
     Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.GetSession')
       .then((data: SessionData) => dispatch({ type: 'session:restored', payload: data }))
       .catch(console.error)
@@ -352,6 +363,7 @@ export default function App() {
   }, [])
 
   const activeTab = state.tabs.find(t => t.file === state.activeFile) ?? null
+  const activePipeline = activeTab ? pipelineOf(activeTab.status) : null
 
   const addPipeline = () => {
     Call.ByName('github.com/colecarlson/stepthrough/service.UIService.SelectAndAdd').catch(console.error)
@@ -368,7 +380,7 @@ export default function App() {
   }
 
   const runPipeline = (file: string) => {
-    if (!activeTab?.pipeline || activeTab.missing) return
+    if (!activeTab || activeTab.status.kind !== 'loaded') return
     Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.RunPipeline', file, 0).catch(console.error)
   }
 
@@ -380,7 +392,6 @@ export default function App() {
     Call.ByName('github.com/colecarlson/stepthrough/service.UIService.RelocateAndWatch', file).catch(console.error)
   }
 
-  // Show splash when Docker is not running or there are no tabs.
   const showSplash = state.dockerReady !== true || state.tabs.length === 0
 
   if (showSplash) {
@@ -390,7 +401,7 @@ export default function App() {
         setupLogs={activeTab?.setupLogs ?? []}
         isSettingUp={activeTab?.isSettingUp ?? false}
         dockerReady={state.dockerReady}
-        setupError={activeTab?.setupError ?? null}
+        setupError={activeTab && activeTab.status.kind === 'setup-error' ? activeTab.status.message : null}
       />
     )
   }
@@ -411,6 +422,9 @@ export default function App() {
     )
   }
 
+  const isMissing = activeTab.status.kind === 'missing'
+  const isRunning = activeTab.status.kind === 'running'
+
   return (
     <div className="app">
       <Topbar
@@ -421,10 +435,10 @@ export default function App() {
         onSwitch={switchTab}
         onRun={() => activeTab && runPipeline(activeTab.file)}
         onCancel={() => activeTab && cancelPipeline(activeTab.file)}
-        running={activeTab.pipeline?.running ?? false}
-        missing={activeTab.missing}
+        running={isRunning}
+        missing={isMissing}
       />
-      {activeTab.missing && (
+      {isMissing && (
         <div className="missing-banner">
           <span className="missing-icon">!</span>
           File not found — pipeline was moved or deleted.
@@ -433,18 +447,18 @@ export default function App() {
           </button>
         </div>
       )}
-      {activeTab.setupError && !activeTab.missing && (
+      {activeTab.status.kind === 'setup-error' && (
         <div className="setup-error-banner">
           <span className="setup-error-icon">!</span>
-          {activeTab.setupError}
+          {activeTab.status.message}
         </div>
       )}
-      {activeTab.parseError ? (
-        <ErrorScreen error={activeTab.parseError} />
+      {activeTab.status.kind === 'error' ? (
+        <ErrorScreen error={activeTab.status.message} />
       ) : (
         <div className="layout">
           <Sidebar
-            steps={activeTab.pipeline?.steps ?? []}
+            steps={activePipeline?.steps ?? []}
             selectedStep={activeTab.selectedStep}
             onSelectStep={index =>
               dispatch({ type: 'step:selected', payload: { file: activeTab.file, index } })
@@ -452,10 +466,10 @@ export default function App() {
           />
           <LogPanel
             selectedStep={activeTab.selectedStep}
-            steps={activeTab.pipeline?.steps ?? []}
+            steps={activePipeline?.steps ?? []}
             logs={activeTab.logs}
             setupLogs={activeTab.setupLogs}
-            variables={activeTab.pipeline?.variables ?? {}}
+            variables={activePipeline?.variables ?? {}}
             isSettingUp={activeTab.isSettingUp}
           />
         </div>

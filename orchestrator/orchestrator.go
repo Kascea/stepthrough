@@ -111,7 +111,16 @@ func (o *Orchestrator) LoadPipeline(file string) PipelineState {
 func (o *Orchestrator) GetState() PipelineState {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	return o.state
+	return o.snapshotStateLocked()
+}
+
+// snapshotStateLocked returns a copy of the current state with an independent
+// Steps slice, safe to use after the mutex is released.
+func (o *Orchestrator) snapshotStateLocked() PipelineState {
+	snap := o.state
+	snap.Steps = make([]StepState, len(o.state.Steps))
+	copy(snap.Steps, o.state.Steps)
+	return snap
 }
 
 // SetSafeMode toggles safe mode.
@@ -141,12 +150,22 @@ func (o *Orchestrator) RunFrom(startIndex int) {
 	runID := o.runID
 	ctx, cancel := context.WithCancel(context.Background())
 	o.cancelRun = cancel
+
+	// Reset steps from startIndex to pending so the frontend shows a clean
+	// state immediately, before the first step:started event arrives.
+	for i := startIndex; i < len(o.state.Steps); i++ {
+		o.state.Steps[i].Status = pipeline.StepStatusPending
+		o.state.Steps[i].ExitCode = 0
+		o.state.Steps[i].DurationMs = 0
+	}
+	resetState := o.snapshotStateLocked()
 	o.mu.Unlock()
 
 	for _, exec := range staleExecutors {
 		exec.Cleanup(context.Background())
 	}
 
+	o.sink("pipeline:loaded", resetState)
 	go o.runSteps(ctx, p, steps, startIndex, file, runID)
 }
 
