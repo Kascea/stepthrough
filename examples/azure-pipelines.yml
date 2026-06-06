@@ -11,6 +11,14 @@ pool:
 variables:
   goVersion: "1.25.4"
 
+# Each job runs on its own fresh agent — that is why GoTool@0 appears in every
+# job. On Microsoft-hosted agents the toolchain is pre-cached, so the "install"
+# is really a fast version-select rather than a full download.
+#
+# -tags=server is required on every go command: the Wails application layer
+# uses CGo and GTK/WebKit headers that are not present on Linux CI agents.
+# The server tag excludes those files so the pure-Go packages compile cleanly.
+
 stages:
   - stage: Lint
     displayName: Lint & Vet
@@ -22,12 +30,9 @@ stages:
             displayName: Checkout source
 
           - task: GoTool@0
-            displayName: Install Go
+            displayName: Install Go $(goVersion)
             inputs:
               version: "$(goVersion)"
-
-          - script: go version
-            displayName: Verify Go
 
           - script: |
               unformatted=$(gofmt -l $(find "$BUILD_SOURCESDIRECTORY" -name '*.go' -not -path '*/frontend/*'))
@@ -55,7 +60,7 @@ stages:
             displayName: Checkout source
 
           - task: GoTool@0
-            displayName: Install Go
+            displayName: Install Go $(goVersion)
             inputs:
               version: "$(goVersion)"
 
@@ -64,6 +69,8 @@ stages:
               echo "Build successful."
             displayName: Build (go build)
 
+  # The two Test jobs run in parallel on separate agents.
+  # Each needs its own checkout and Go install because agents share nothing.
   - stage: Test
     displayName: Test
     dependsOn: Build
@@ -75,22 +82,33 @@ stages:
             displayName: Checkout source
 
           - task: GoTool@0
-            displayName: Install Go
+            displayName: Install Go $(goVersion)
             inputs:
               version: "$(goVersion)"
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./pipeline/... -v -count=1
-            displayName: Pipeline parser tests
-
-          - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./runner/... -v -count=1
-            displayName: Runner tests
+              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./pipeline/... ./orchestrator/... ./service/... -v -count=1
+            displayName: Unit tests
 
           - script: |
               go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./... -count=1 -coverprofile=coverage.out
               go -C "$BUILD_SOURCESDIRECTORY" tool cover -func=coverage.out | tail -1
             displayName: Coverage report
+
+      - job: IntegrationTests
+        displayName: Integration tests (Docker)
+        steps:
+          - checkout: self
+            displayName: Checkout source
+
+          - task: GoTool@0
+            displayName: Install Go $(goVersion)
+            inputs:
+              version: "$(goVersion)"
+
+          - script: |
+              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./runner/... -v -count=1
+            displayName: Runner integration tests
 
   - stage: Deploy
     displayName: Deploy to Staging
@@ -104,7 +122,7 @@ stages:
             deploy:
               steps:
                 - script: echo "Deploying to staging..."
-                  displayName: Deploy
+                  displayName: Deploy artifact
 
                 - script: echo "Running smoke tests..."
                   displayName: Smoke test

@@ -11,8 +11,12 @@ export default function StatusIcon({ status, size = 16 }: Props) {
   if (status === 'pending') {
     return (
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
-        <circle cx={r} cy={r} r={r - 1.5} fill="none" stroke="#98a2b3" strokeWidth="1.5" />
-        <circle cx={r} cy={r} r={r * 0.22} fill="#98a2b3" />
+        <circle cx={r} cy={r} r={r - 1.5} fill="none" stroke="#555" strokeWidth="1.5" />
+        <polyline
+          points={`${size*0.34},${size*0.3} ${size*0.63},${size*0.5} ${size*0.34},${size*0.7}`}
+          fill="none" stroke="#555" strokeWidth="1.5"
+          strokeLinecap="round" strokeLinejoin="round"
+        />
       </svg>
     )
   }

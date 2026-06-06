@@ -88,7 +88,9 @@ func (c *Container) ExecScript(ctx context.Context, script string, env map[strin
 
 // execScript is the internal implementation that writes to an io.Writer.
 func (c *Container) execScript(ctx context.Context, script string, env map[string]string, w io.Writer) (int, error) {
-	args := []string{"exec"}
+	// -i is required: without it Docker does not forward stdin to the container
+	// and "cat > $tmp" reads empty stdin, producing a no-op script with no output.
+	args := []string{"exec", "-i"}
 	for k, v := range env {
 		args = append(args, "-e", k+"="+v)
 	}
@@ -169,7 +171,10 @@ func (w *chanLineWriter) Write(p []byte) (int, error) {
 		w.buf.WriteString(s[:i])
 		line := w.buf.String()
 		w.buf.Reset()
-		w.ch <- line
+		select {
+		case w.ch <- line:
+		default:
+		}
 		s = s[i+1:]
 	}
 	return len(p), nil

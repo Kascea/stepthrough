@@ -334,6 +334,134 @@ steps:
 	}
 }
 
+func TestStepLogEventsArriveBeforeStepDone(t *testing.T) {
+	file := writePipeline(t, `
+pool:
+  vmImage: ubuntu-latest
+steps:
+  - script: echo hello
+    displayName: Hello
+`)
+
+	factory := &recordingFactory{}
+
+	type namedEvent struct {
+		name string
+		data any
+	}
+	var mu sync.Mutex
+	var captured []namedEvent
+	doneCh := make(chan struct{})
+	var once sync.Once
+	sink := func(name string, data any) {
+		mu.Lock()
+		captured = append(captured, namedEvent{name, data})
+		mu.Unlock()
+		if name == "pipeline:done" {
+			once.Do(func() { close(doneCh) })
+		}
+	}
+
+	orch := New(factory.newExecutor, sink)
+	orch.LoadPipeline(file)
+	orch.RunFrom(0)
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for pipeline:done")
+	}
+
+	mu.Lock()
+	events := append([]namedEvent(nil), captured...)
+	mu.Unlock()
+
+	// Verify: every step:done is preceded by at least one step:log for that step.
+	logsSeenForStep := map[int]bool{}
+	for _, e := range events {
+		if e.name == "step:log" {
+			ll, ok := e.data.(LogLine)
+			if ok {
+				logsSeenForStep[ll.StepIndex] = true
+			}
+		}
+		if e.name == "step:done" {
+			state, ok := e.data.(PipelineState)
+			if !ok {
+				continue
+			}
+			// Find the step that just completed.
+			for _, s := range state.Steps {
+				if s.Status == pipeline.StepStatusPassed || s.Status == pipeline.StepStatusFailed {
+					if !logsSeenForStep[s.Index] {
+						t.Errorf("step:done received for step %d before any step:log events", s.Index)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestSetupLogEventsArriveBeforeStepStarted(t *testing.T) {
+	file := writePipeline(t, `
+pool:
+  vmImage: ubuntu-latest
+steps:
+  - script: echo hello
+    displayName: Hello
+`)
+
+	factory := &recordingFactory{}
+
+	var mu sync.Mutex
+	var events []string
+	doneCh := make(chan struct{})
+	var once sync.Once
+	sink := func(name string, _ any) {
+		mu.Lock()
+		events = append(events, name)
+		mu.Unlock()
+		if name == "pipeline:done" {
+			once.Do(func() { close(doneCh) })
+		}
+	}
+
+	orch := New(factory.newExecutor, sink)
+	orch.LoadPipeline(file)
+	orch.RunFrom(0)
+
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for pipeline:done")
+	}
+
+	mu.Lock()
+	evts := append([]string(nil), events...)
+	mu.Unlock()
+
+	// Verify setup:log precedes step:started.
+	setupLogIdx := -1
+	stepStartedIdx := -1
+	for i, e := range evts {
+		if e == "setup:log" && setupLogIdx == -1 {
+			setupLogIdx = i
+		}
+		if e == "step:started" && stepStartedIdx == -1 {
+			stepStartedIdx = i
+		}
+	}
+	if setupLogIdx == -1 {
+		t.Fatal("no setup:log event emitted")
+	}
+	if stepStartedIdx == -1 {
+		t.Fatal("no step:started event emitted")
+	}
+	if setupLogIdx >= stepStartedIdx {
+		t.Errorf("setup:log at position %d should precede step:started at position %d", setupLogIdx, stepStartedIdx)
+	}
+}
+
 func writePipeline(t *testing.T, contents string) string {
 	t.Helper()
 	dir := t.TempDir()

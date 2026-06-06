@@ -247,13 +247,17 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 		// Deployment jobs are never executed locally — display only.
 		if fs.IsDeploymentJob {
 			logCh := make(chan string, 1)
+			var deployWg sync.WaitGroup
+			deployWg.Add(1)
 			go func(idx int) {
+				defer deployWg.Done()
 				for line := range logCh {
 					o.sink("step:log", LogLine{StepIndex: idx, Line: line})
 				}
 			}(i)
 			logCh <- "[stepthrough] deployment jobs are not executed locally — skipping"
 			close(logCh)
+			deployWg.Wait()
 			o.sink("step:done", o.GetState())
 			continue
 		}
@@ -266,7 +270,10 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 			o.registerExecutor(key, exec)
 
 			setupCh := make(chan string, 100)
+			var setupWg sync.WaitGroup
+			setupWg.Add(1)
 			go func() {
+				defer setupWg.Done()
 				for line := range setupCh {
 					o.sink("setup:log", line)
 				}
@@ -274,6 +281,7 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 			setupCh <- fmt.Sprintf("[stepthrough] setting up job %s", fs.JobName)
 			err := exec.Setup(ctx, p, job, containerNameForJob(fs), setupCh)
 			close(setupCh)
+			setupWg.Wait() // ensure all setup:log events fire before step:started
 			if err != nil {
 				o.sink("pipeline:setup-error", err.Error())
 				return

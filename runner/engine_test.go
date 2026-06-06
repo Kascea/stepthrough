@@ -8,6 +8,38 @@ import (
 	"github.com/colecarlson/stepthrough/pipeline"
 )
 
+// TestChanLineWriterForwardsLines guards against regressions where step output
+// is silently dropped. This was the symptom of the missing -i flag on docker exec:
+// chanLineWriter received no bytes because stdin was never forwarded.
+func TestChanLineWriterForwardsLines(t *testing.T) {
+	ch := make(chan string, 8)
+	w := &chanLineWriter{ch: ch}
+
+	input := "line one\nline two\nline three\n"
+	n, err := w.Write([]byte(input))
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if n != len(input) {
+		t.Fatalf("Write returned %d, want %d", n, len(input))
+	}
+	close(ch)
+
+	var got []string
+	for line := range ch {
+		got = append(got, line)
+	}
+	want := []string{"line one", "line two", "line three"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d: got %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestEngineSetup_DockerUnavailable(t *testing.T) {
 	old := dockerChecker
 	dockerChecker = func() bool { return false }

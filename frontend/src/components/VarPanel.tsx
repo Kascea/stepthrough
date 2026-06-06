@@ -8,7 +8,6 @@ export default function VarPanel({ variables }: Props) {
 
   return (
     <div className="var-panel">
-      <div className="var-title">Variables</div>
       {entries.map(([k, v]) => (
         <div key={k} className="var-row">
           <span className="var-name">{k}</span>

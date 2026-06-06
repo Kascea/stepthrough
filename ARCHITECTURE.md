@@ -14,7 +14,7 @@ This file tracks structural observations and deepening opportunities. Update it 
 | `orchestrator/` | Moderate | `Executor` interface is clean. Goroutine lifecycle is opaque to callers (see improvement #3). |
 | `service/` | Shallow (God) | `PipelineService` conflates tab lifecycle, log capture, session persistence, event wrapping, and watcher coordination (see improvement #1). |
 | `frontend/App.tsx` | Moderate | Clean `useReducer` pattern. `step:done` event forces an extra RPC round-trip (see improvement #2). |
-| `frontend/WatcherService` | Shallow | Bidirectional dependency with `PipelineService`; zero tests (see improvement #4). |
+| `service/tab_manager.go` | Moderate | Owns orchestrators, tab order, file watchers. Extracted from PipelineService (#1). |
 
 ---
 
@@ -28,9 +28,9 @@ All events are wrapped as `PipelineFileEvent{File, Data}` so the frontend can ro
 | `pipeline:missing` | — | File not found on disk |
 | `pipeline:error` | `string` | YAML parse error |
 | `pipeline:setup-error` | `string` | Runtime setup failure |
-| `pipeline:done` | — | Execution finished |
+| `pipeline:done` | `PipelineState` | Execution finished; full final state |
 | `step:started` | `int` (step index) | |
-| `step:done` | `int` (step index) | ⚠ frontend immediately calls `GetPipelineState` RPC — see improvement #2 |
+| `step:done` | `PipelineState` | Step finished; full state snapshot (no RPC needed) |
 | `step:log` | `LogLine` | Streamed log line |
 | `setup:log` | `string` | Docker setup log |
 
@@ -72,13 +72,9 @@ When Go emits `step:done` it only sends the step index. The frontend immediately
 
 ---
 
-### #4 · Break `WatcherService` ↔ `PipelineService` feedback loop — **Worth exploring** · not started
+### #4 · File watcher integrated into `tabManager` — ✅ done
 
-**Files:** `service/watcher.go`, `service/pipeline.go`
-
-Bidirectional dependency: `PipelineService` calls `WatcherService.AddWatch()`; `WatcherService` calls back into `PipelineService.ReloadFile()`. Neither can be tested or understood independently. `WatcherService` has zero tests.
-
-**Fix:** Give `WatcherService` an `OnChange func(file string)` seam set at construction. `PipelineService` passes its own `ReloadFile` as the callback. `WatcherService` no longer imports `PipelineService`.
+`WatcherService` was removed. File watching is now owned by `tabManager` via `fsnotify`. Each `tabEntry` holds its own `*fsnotify.Watcher`. `newTabManager` takes `onFileChange` and `onWatchError` callbacks so `PipelineService` passes `ReloadFile` as the seam — no circular dependency.
 
 ---
 

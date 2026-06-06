@@ -8,7 +8,16 @@
       "Bash(go install *)",
       "Bash(kill %1)",
       "Bash(pkill -f \"wails3 dev\")",
-      "Bash(go test *)"
+      "Bash(go test *)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough log --oneline -10)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough diff HEAD~1 -- frontend/src/App.tsx)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough diff HEAD~2 HEAD -- frontend/src/App.tsx)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough show ab89b8c --stat)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough show e71cdaf --stat)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough show e71cdaf -- frontend/src/App.tsx)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough diff HEAD~3 HEAD -- frontend/src/App.tsx)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough diff HEAD~3 HEAD -- orchestrator/orchestrator.go)",
+      "Bash(git -C /Users/colecarlson/Code/stepthrough show e71cdaf -- service/pipeline.go)"
     ]
   }
 }

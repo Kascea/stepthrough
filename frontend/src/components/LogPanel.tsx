@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { StepState, formatDuration } from '../types'
 import StatusIcon from './StatusIcon'
 import VarPanel from './VarPanel'
@@ -14,9 +14,11 @@ interface Props {
 
 export default function LogPanel({ selectedStep, steps, logs, setupLogs, variables, isSettingUp }: Props) {
   const logEndRef = useRef<HTMLDivElement>(null)
+  const [varsOpen, setVarsOpen] = useState(false)
   const selectedLogs = selectedStep !== null ? (logs[selectedStep] ?? []) : []
   const step = selectedStep !== null ? steps[selectedStep] : null
   const logIconStatus = step?.status === 'running' ? 'pending' : step?.status
+  const varEntries = Object.entries(variables)
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -36,7 +38,7 @@ export default function LogPanel({ selectedStep, steps, logs, setupLogs, variabl
       {step && !showSetup ? (
         <div className="log-header">
           <span className={`log-badge s-${step.status}`}>
-            <StatusIcon status={logIconStatus ?? 'pending'} size={12} />
+            <StatusIcon status={logIconStatus ?? 'pending'} size={11} />
             {step.status}
           </span>
           <span className="log-step-name">{step.label}</span>
@@ -70,7 +72,22 @@ export default function LogPanel({ selectedStep, steps, logs, setupLogs, variabl
         <div ref={logEndRef} />
       </div>
 
-      <VarPanel variables={variables} />
+      {varEntries.length > 0 && (
+        <>
+          <button className="var-toggle" onClick={() => setVarsOpen(v => !v)}>
+            <svg
+              className={`var-toggle-chevron${varsOpen ? ' open' : ''}`}
+              width="10" height="10" viewBox="0 0 10 10"
+              fill="none" stroke="currentColor" strokeWidth="1.5"
+              strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline points="2,3 5,7 8,3" />
+            </svg>
+            Variables ({varEntries.length})
+          </button>
+          {varsOpen && <VarPanel variables={variables} />}
+        </>
+      )}
     </main>
   )
 }
