@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 ARG GO_VERSION=1.25.4
 ARG NODE_MAJOR=22
 ARG PYTHON_VERSION=3.12
-ARG DOTNET_CHANNEL=10.0
+ARG DOTNET_SDKS="dotnet-sdk-8.0 dotnet-sdk-10.0"
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/usr/local/go/bin:$PATH"
@@ -32,10 +32,14 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
     apt-get install -y -qq nodejs && \
     rm -rf /var/lib/apt/lists/*
 
-# .NET
-RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && \
-    bash /tmp/dotnet-install.sh --channel ${DOTNET_CHANNEL} --install-dir /usr/local/bin && \
-    rm /tmp/dotnet-install.sh
+# .NET — install via Microsoft apt repo, matching Azure's ubuntu-latest hosted agent.
+# apt handles all runtime dependencies (libicu74, etc.) automatically.
+RUN curl -sSL https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -o /tmp/packages-microsoft-prod.deb && \
+    dpkg -i /tmp/packages-microsoft-prod.deb && \
+    rm /tmp/packages-microsoft-prod.deb && \
+    apt-get update -qq && \
+    apt-get install -y -qq ${DOTNET_SDKS} && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
 USER vsts

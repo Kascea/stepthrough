@@ -17,26 +17,6 @@ type taskAdapter interface {
 	Resolve(ctx taskContext) (string, bool)
 }
 
-var taskAdapters = map[string]taskAdapter{
-	"GoTool":                   goToolAdapter{},
-	"UseDotNet":                useDotNetAdapter{},
-	"UseNode":                  useNodeAdapter{},
-	"NodeTool":                 useNodeAdapter{},
-	"UsePythonVersion":         usePythonVersionAdapter{},
-	"DotNetCoreCLI":            dotNetCoreCLIAdapter{},
-	"NuGetCommand":             nuGetCommandAdapter{},
-	"CopyFiles":                copyFilesAdapter{},
-	"PublishBuildArtifacts":    publishArtifactAdapter{},
-	"PublishPipelineArtifact":  publishArtifactAdapter{},
-	"PublishTestResults":       publishTestResultsAdapter{},
-	"DownloadBuildArtifacts":   downloadArtifactAdapter{},
-	"DownloadPipelineArtifact": downloadArtifactAdapter{},
-	"Docker":                   dockerAdapter{},
-	"AzureCLI":                 azureCLIAdapter{},
-	"Bash":                     commandLineAdapter{},
-	"CmdLine":                  commandLineAdapter{},
-}
-
 type goToolAdapter struct{}
 
 func (goToolAdapter) Resolve(ctx taskContext) (string, bool) {
@@ -145,7 +125,15 @@ python${major} --version
 type dotNetCoreCLIAdapter struct{}
 
 func (dotNetCoreCLIAdapter) Resolve(ctx taskContext) (string, bool) {
-	return fmt.Sprintf(`dotnet %s %s %s`, input(ctx, "command"), input(ctx, "projects"), input(ctx, "arguments")), true
+	command := input(ctx, "command")
+	arguments := input(ctx, "arguments")
+	// When command=custom, the actual subcommand is in the "custom" input.
+	// e.g. command=custom, custom=tool, arguments="install --tool-path . foo"
+	// → dotnet tool install --tool-path . foo
+	if command == "custom" {
+		return fmt.Sprintf(`dotnet %s %s`, input(ctx, "custom"), arguments), true
+	}
+	return fmt.Sprintf(`dotnet %s %s %s`, command, input(ctx, "projects"), arguments), true
 }
 
 type nuGetCommandAdapter struct{}

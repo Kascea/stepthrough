@@ -15,5 +15,8 @@ frontend/node_modules/
 frontend/dist/
 frontend/bindings/
 
+# Go test output
+coverage.out
+
 # macOS
 .DS_Store

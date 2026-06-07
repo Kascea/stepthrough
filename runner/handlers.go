@@ -97,10 +97,7 @@ func (taskHandler) Supports(step *pipeline.Step) bool { return step.Type() == pi
 func (taskHandler) Resolve(step *pipeline.Step) (string, bool) {
 	definition, ok := taskDefinitionFor(step.Task)
 	if !ok {
-		return fmt.Sprintf(`echo "[task] %s - task definition not found in azure-pipelines-tasks, skipping"`, step.Task), true
-	}
-	if definition.Adapter == nil {
-		return fmt.Sprintf(`echo "[task] %s - task definition loaded, but no local execution adapter exists yet"`, step.Task), true
+		return fmt.Sprintf(`echo "[task] %s - not supported locally"; exit 1`, step.Task), true
 	}
 	return definition.Adapter.Resolve(taskContext{
 		Step:       step,

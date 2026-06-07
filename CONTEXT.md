@@ -42,6 +42,14 @@ The Docker image (`ghcr.io/kascea/stepthrough-agent`) used as the execution envi
 
 ---
 
+## Task Adapter
+
+A local reimplementation of an Azure Pipelines task (e.g. `UseDotNet@2`, `DotNetCoreCLI@2`) that translates the task's inputs into a shell script executable inside the Agent Image. Adapters are registered in `runner/task_metadata.go`. Tasks with no registered adapter fail the pipeline step with `exit 1`.
+
+**See also:** ADR 0003
+
+---
+
 ## CI Pipeline
 
 stepthrough's own Azure DevOps pipeline, located at `.azure/pipelines/ci.yml`. Runs lint, build, unit tests, integration tests, and agent image publishing. Not an example pipeline — it is the project's own CI, not representative user content.
