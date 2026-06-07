@@ -107,7 +107,7 @@ describe('step:done', () => {
       tabs: [{
         ...emptyTabState(file),
         status: { kind: 'running', pipeline: {
-          file, valid: true, error: '', running: true, safeMode: false, variables: {},
+          file, repoRoot: '', valid: true, error: '', running: true, safeMode: false, variables: {},
           steps: [makeStep(0, 'running')],
         }},
       }],
@@ -115,7 +115,7 @@ describe('step:done', () => {
     }
     const result = applyStepDone(initial, {
       file,
-      data: { file, valid: true, error: '', running: true, safeMode: false, variables: {},
+      data: { file, repoRoot: '', valid: true, error: '', running: true, safeMode: false, variables: {},
         steps: [makeStep(0, 'passed', 420)] },
     })
     expect(pipelineOf(result.tabs[0].status)?.steps[0].status).toBe('passed')
@@ -132,7 +132,7 @@ describe('step:done', () => {
       tabs: [{
         ...emptyTabState(file),
         status: { kind: 'running', pipeline: {
-          file, valid: true, error: '', running: true, safeMode: false, variables: {},
+          file, repoRoot: '', valid: true, error: '', running: true, safeMode: false, variables: {},
           steps: [makeStep(0, 'passed'), makeStep(1, 'running')],
         }},
       }],
@@ -140,7 +140,7 @@ describe('step:done', () => {
     }
     const result = applyStepDone(initial, {
       file,
-      data: { file, valid: true, error: '', running: true, safeMode: false, variables: {},
+      data: { file, repoRoot: '', valid: true, error: '', running: true, safeMode: false, variables: {},
         steps: [makeStep(0, 'passed', 100), makeStep(1, 'pending')] },
     })
     const steps = pipelineOf(result.tabs[0].status)?.steps
@@ -155,7 +155,7 @@ describe('step:done', () => {
       tabs: [{
         ...emptyTabState(file),
         status: { kind: 'running', pipeline: {
-          file, valid: true, error: '', running: true, safeMode: false, variables: {},
+          file, repoRoot: '', valid: true, error: '', running: true, safeMode: false, variables: {},
           steps: [makeStep(0, 'running'), makeStep(1, 'pending')],
         }},
       }],
@@ -163,7 +163,7 @@ describe('step:done', () => {
     }
     const result = applyStepDone(initial, {
       file,
-      data: { file, valid: true, error: '', running: true, safeMode: false, variables: {},
+      data: { file, repoRoot: '', valid: true, error: '', running: true, safeMode: false, variables: {},
         steps: [makeStep(0, 'passed', 200), makeStep(1, 'pending')] },
     })
     const steps = pipelineOf(result.tabs[0].status)?.steps
@@ -175,7 +175,7 @@ describe('step:done', () => {
     const state: AppState = { ...initialState, tabs: [emptyTabState('/other.yml')], activeFile: '/other.yml' }
     const result = applyStepDone(state, {
       file: '/unknown.yml',
-      data: { file: '/unknown.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false },
+      data: { file: '/unknown.yml', repoRoot: '', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false },
     })
     expect(result.tabs[0].status.kind).toBe('empty')
   })
@@ -209,7 +209,7 @@ describe('TabStatus', () => {
 
   it('loaded tab exposes pipeline', () => {
     const pipeline: PipelineState = {
-      file: '/a.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false,
+      file: '/a.yml', repoRoot: '', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: false,
     }
     const tab = { ...emptyTabState('/a.yml'), status: { kind: 'loaded' as const, pipeline } }
     expect(pipelineOf(tab.status)).toBe(pipeline)
@@ -217,7 +217,7 @@ describe('TabStatus', () => {
 
   it('running tab exposes pipeline', () => {
     const pipeline: PipelineState = {
-      file: '/a.yml', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: true,
+      file: '/a.yml', repoRoot: '', valid: true, error: '', steps: [], variables: {}, safeMode: false, running: true,
     }
     const tab = { ...emptyTabState('/a.yml'), status: { kind: 'running' as const, pipeline } }
     expect(pipelineOf(tab.status)).toBe(pipeline)

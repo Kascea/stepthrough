@@ -44,6 +44,7 @@ type StepState struct {
 // PipelineState is the full frontend-visible state of the pipeline.
 type PipelineState struct {
 	File      string            `json:"file"`
+	RepoRoot  string            `json:"repoRoot"`
 	Valid     bool              `json:"valid"`
 	Error     string            `json:"error"`
 	Steps     []StepState       `json:"steps"`
@@ -89,6 +90,7 @@ func (o *Orchestrator) LoadPipeline(file string) PipelineState {
 	p, err := pipeline.Parse(file)
 	if err != nil {
 		o.state.File = file
+		o.state.RepoRoot = workspaceRoot(file)
 		o.state.Valid = false
 		o.state.Error = err.Error()
 		o.state.Steps = nil
@@ -97,6 +99,7 @@ func (o *Orchestrator) LoadPipeline(file string) PipelineState {
 
 	o.pipeline = p
 	o.state.File = file
+	o.state.RepoRoot = workspaceRoot(file)
 	o.state.Valid = true
 	o.state.Error = ""
 	o.state.Variables = map[string]string(p.Variables)

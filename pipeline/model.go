@@ -116,24 +116,24 @@ type Pool struct {
 }
 
 type Stage struct {
-	Stage       string            `yaml:"stage"`
-	DisplayName string            `yaml:"displayName"`
-	DependsOn   []string          `yaml:"-"` // parsed manually (string or []string)
-	Condition   string            `yaml:"condition"`
+	Stage       string    `yaml:"stage"`
+	DisplayName string    `yaml:"displayName"`
+	DependsOn   []string  `yaml:"-"` // parsed manually (string or []string)
+	Condition   string    `yaml:"condition"`
 	Variables   Variables `yaml:"variables"`
 	Pool        *Pool     `yaml:"pool"`
 	Jobs        []Job     `yaml:"jobs"`
 }
 
 type Job struct {
-	Job              string            `yaml:"job"`
-	DisplayName      string            `yaml:"displayName"`
-	DependsOn        []string          `yaml:"-"` // parsed manually
-	Condition        string            `yaml:"condition"`
+	Job              string    `yaml:"job"`
+	DisplayName      string    `yaml:"displayName"`
+	DependsOn        []string  `yaml:"-"` // parsed manually
+	Condition        string    `yaml:"condition"`
 	Pool             *Pool     `yaml:"pool"`
 	Variables        Variables `yaml:"variables"`
 	TimeoutInMinutes int       `yaml:"timeoutInMinutes"`
-	Steps            []Step            `yaml:"steps"`
+	Steps            []Step    `yaml:"steps"`
 	// Deployment job fields
 	Deployment  string    `yaml:"deployment"`
 	Environment string    `yaml:"environment"`

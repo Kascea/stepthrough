@@ -50,6 +50,7 @@ function emptyTab(file: string): TabState {
 function tabFromSavedRun(file: string, run: SavedRun): TabState {
   const pipeline: PipelineState = {
     file,
+    repoRoot: '',
     valid: true,
     error: '',
     steps: run.steps ?? [],

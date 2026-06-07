@@ -1,4 +1,4 @@
-import { TabState, repoName, tabStatus } from '../types'
+import { TabState, tabLabel, tabStatus } from '../types'
 
 interface Props {
   tabs: TabState[]
@@ -35,7 +35,7 @@ export default function Topbar({ tabs, activeFile, onAdd, onClose, onSwitch, onR
               title={tab.file}
             >
               <StatusDot tab={tab} />
-              <span className="tab-label">{repoName(tab.file)}</span>
+              <span className="tab-label">{tabLabel(tab.file, (tab.status.kind === 'loaded' || tab.status.kind === 'running') ? tab.status.pipeline.repoRoot : undefined)}</span>
               <span
                 className="tab-close"
                 role="button"

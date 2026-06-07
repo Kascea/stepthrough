@@ -21,6 +21,7 @@ export interface StepState {
 
 export interface PipelineState {
   file: string
+  repoRoot: string
   valid: boolean
   error: string
   steps: StepState[]
@@ -110,9 +111,13 @@ export function basename(filePath: string): string {
   return filePath.split('/').pop() ?? filePath
 }
 
-export function repoName(filePath: string): string {
-  const parts = filePath.split('/')
-  return parts.length >= 2 ? (parts[parts.length - 2] ?? filePath) : filePath
+export function tabLabel(filePath: string, repoRoot?: string): string {
+  const file = basename(filePath)
+  const root = repoRoot ?? filePath
+  const repo = basename(root)
+  // Don't repeat if the file lives directly at the repo root with the same name
+  if (repo === file) return file
+  return `${repo} / ${file}`
 }
 
 // Derive a display status for a tab (for the tab strip dot).
