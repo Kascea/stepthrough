@@ -110,6 +110,11 @@ export function basename(filePath: string): string {
   return filePath.split('/').pop() ?? filePath
 }
 
+export function repoName(filePath: string): string {
+  const parts = filePath.split('/')
+  return parts.length >= 2 ? (parts[parts.length - 2] ?? filePath) : filePath
+}
+
 // Derive a display status for a tab (for the tab strip dot).
 export function tabStatus(tab: TabState): StepStatus {
   if (tab.status.kind !== 'loaded' && tab.status.kind !== 'running') return 'pending'

@@ -1,4 +1,4 @@
-import { TabState, basename, tabStatus } from '../types'
+import { TabState, repoName, tabStatus } from '../types'
 
 interface Props {
   tabs: TabState[]
@@ -35,7 +35,7 @@ export default function Topbar({ tabs, activeFile, onAdd, onClose, onSwitch, onR
               title={tab.file}
             >
               <StatusDot tab={tab} />
-              <span className="tab-label">{basename(tab.file)}</span>
+              <span className="tab-label">{repoName(tab.file)}</span>
               <span
                 className="tab-close"
                 role="button"

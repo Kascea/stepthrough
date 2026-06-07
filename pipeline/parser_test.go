@@ -338,7 +338,7 @@ func TestDeploymentJob_StepsExtractedFromStrategy(t *testing.T) {
 }
 
 func TestDeploymentJob_InMainExample(t *testing.T) {
-	p, err := pipeline.Parse("../examples/azure-pipelines.yml")
+	p, err := pipeline.Parse("../.azure/pipelines/ci.yml")
 	if err != nil {
 		t.Fatalf("parse main example: %v", err)
 	}
@@ -444,7 +444,7 @@ func TestFlatten_DeploymentJob(t *testing.T) {
 // ── Main example file test ────────────────────────────────────────────────────
 
 func TestParseMainExample(t *testing.T) {
-	p, err := pipeline.Parse("../examples/azure-pipelines.yml")
+	p, err := pipeline.Parse("../.azure/pipelines/ci.yml")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestParseMainExample(t *testing.T) {
 }
 
 func TestParseMainExample_TotalStepCount(t *testing.T) {
-	p, err := pipeline.Parse("../examples/azure-pipelines.yml")
+	p, err := pipeline.Parse("../.azure/pipelines/ci.yml")
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}

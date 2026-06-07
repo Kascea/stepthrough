@@ -13,7 +13,7 @@ import (
 )
 
 func TestWorkspaceRootUsesGitRoot(t *testing.T) {
-	got := workspaceRoot("../examples/azure-pipelines.yml")
+	got := workspaceRoot("../.azure/pipelines/ci.yml")
 	want, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatalf("abs repo root: %v", err)

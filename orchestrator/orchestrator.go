@@ -99,7 +99,7 @@ func (o *Orchestrator) LoadPipeline(file string) PipelineState {
 	o.state.File = file
 	o.state.Valid = true
 	o.state.Error = ""
-	o.state.Variables = p.Variables
+	o.state.Variables = map[string]string(p.Variables)
 	if o.state.Variables == nil {
 		o.state.Variables = map[string]string{}
 	}

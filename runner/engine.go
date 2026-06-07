@@ -55,7 +55,7 @@ func (e *Engine) Setup(ctx context.Context, p *pipeline.Pipeline, job *pipeline.
 	exec.Command("docker", "rm", "-f", containerName).Run() //nolint
 
 	outputCh <- fmt.Sprintf("[stepthrough] starting container %s…", containerName)
-	c, err := Start(ctx, containerName, image, e.workDir, p.Variables)
+	c, err := Start(ctx, containerName, image, e.workDir, map[string]string(p.Variables))
 	if err != nil {
 		return fmt.Errorf("start container: %w", err)
 	}

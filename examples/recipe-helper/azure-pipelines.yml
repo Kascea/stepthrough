@@ -1,0 +1,167 @@
+# Source: https://github.com/eristow/recipe_helper
+# Language: Go (backend) + Node.js (frontend) — multi-stage
+# Exercises: stages, parallel jobs, variables block, GoTool@0, Go@0 (unknown task), NodeTool@0 (unknown task),
+#            script steps, conditional Docker@2 steps (only on main branch)
+# Note: Go@0 and NodeTool@0 are not in stepthrough's adapter list — they will be handled
+# as unknown tasks. Docker@2 steps are conditional on main branch so they are skipped
+# in most test runs. This pipeline exercises stage execution and unknown task handling.
+
+trigger:
+  - main
+  - feature/*
+
+pr:
+  - main
+
+variables:
+  - name: GO_VERSION
+    value: '1.23.0'
+  - name: NODE_VERSION
+    value: '22.x'
+  - name: DOCKER_REPOSITORY
+    value: 'nave321/recipe_helper'
+  - name: LINTER_TIMEOUT
+    value: '5m'
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildBackend
+    displayName: 'Build and Test Backend'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: GoTool@0
+      inputs:
+        version: '$(GO_VERSION)'
+    - task: Go@0
+      inputs:
+        command: 'build'
+        arguments: '-o ./main ./cmd/service/main.go'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/backend'
+    - script: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.60.3
+      displayName: 'Install golangci-lint'
+    - script: |
+        export GO111MODULE=on
+        $(go env GOPATH)/bin/golangci-lint run --timeout=$(LINTER_TIMEOUT) --exclude-dirs $(go env GOPATH) ./...
+      workingDirectory: '$(System.DefaultWorkingDirectory)/backend'
+      displayName: 'Run golangci-lint'
+    - script: |
+        go test -v ./...
+      workingDirectory: '$(System.DefaultWorkingDirectory)/backend'
+      displayName: 'Run tests'
+    - script: |
+        go test -race -v ./...
+      workingDirectory: '$(System.DefaultWorkingDirectory)/backend'
+      displayName: 'Run tests with race detector'
+    - script: |
+        mkdir -p ./coverage
+        go test -v -coverprofile=./coverage/coverage.txt -covermode=atomic ./...
+      workingDirectory: '$(System.DefaultWorkingDirectory)/backend'
+      displayName: 'Run tests with coverage'
+    - task: Docker@2
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: 'DockerHubConnection'
+        repository: '$(DOCKER_REPOSITORY)/backend'
+        command: 'buildAndPush'
+        Dockerfile: '$(System.DefaultWorkingDirectory)/backend/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+          latest
+
+  - job: BuildFrontend
+    displayName: 'Build and Test Frontend'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '$(NODE_VERSION)'
+    - task: Npm@1
+      inputs:
+        command: 'custom'
+        workingDir: '$(System.DefaultWorkingDirectory)/frontend'
+        customCommand: 'install -g pnpm@9'
+    - script: |
+        pnpm install
+      workingDirectory: '$(System.DefaultWorkingDirectory)/frontend'
+      displayName: 'Install dependencies'
+    - script: |
+        pnpm run test
+      workingDirectory: '$(System.DefaultWorkingDirectory)/frontend'
+      displayName: 'Run tests'
+    - task: Docker@2
+      condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+      inputs:
+        containerRegistry: 'DockerHubConnection'
+        repository: '$(DOCKER_REPOSITORY)/frontend'
+        command: 'buildAndPush'
+        Dockerfile: '$(System.DefaultWorkingDirectory)/frontend/Dockerfile'
+        tags: |
+          $(Build.BuildId)
+          latest
+
+- stage: DockerBuild
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  jobs:
+  - job: BuildBackendDocker
+    displayName: 'Build Backend Docker Image'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      inputs:
+        containerRegistry: 'DockerHubConnection'
+        repository: '$(DOCKER_REPOSITORY)/backend'
+        command: 'buildAndPush'
+        Dockerfile: '$(System.DefaultWorkingDirectory)/backend/Dockerfile'
+        tags: |
+          recipe_helper_backend
+          $(Build.BuildId)
+
+  - job: BuildFrontendDocker
+    displayName: 'Build Frontend Docker Image'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      inputs:
+        containerRegistry: 'DockerHubConnection'
+        repository: '$(DOCKER_REPOSITORY)/frontend'
+        command: 'buildAndPush'
+        Dockerfile: '$(System.DefaultWorkingDirectory)/frontend/Dockerfile'
+        tags: |
+          recipe_helper_frontend
+          $(Build.BuildId)
+
+  - job: BuildDatabaseImage
+    displayName: 'Build Database Docker Image'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      inputs:
+        containerRegistry: 'DockerHubConnection'
+        repository: '$(DOCKER_REPOSITORY)/database'
+        command: 'buildAndPush'
+        Dockerfile: '$(System.DefaultWorkingDirectory)/Dockerfile'
+        tags: |
+          recipe_helper_database
+          $(Build.BuildId)
+
+  - job: BuildOllamaImage
+    displayName: 'Build Ollama Docker Image'
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      inputs:
+        containerRegistry: 'DockerHubConnection'
+        repository: '$(DOCKER_REPOSITORY)/ollama'
+        command: 'buildAndPush'
+        Dockerfile: '$(System.DefaultWorkingDirectory)/Dockerfile'
+        tags: |
+          recipe_helper_ollama
+          $(Build.BuildId)

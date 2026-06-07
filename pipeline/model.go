@@ -1,15 +1,50 @@
 package pipeline
 
-import "time"
+import (
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Variables is a pipeline variable map that handles both YAML forms:
+//   - object form: key: value
+//   - sequence form: [{name: key, value: val}, ...]
+type Variables map[string]string
+
+func (v *Variables) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		*v = m
+	case yaml.SequenceNode:
+		*v = make(Variables)
+		for _, item := range value.Content {
+			var entry struct {
+				Name  string `yaml:"name"`
+				Value string `yaml:"value"`
+			}
+			if err := item.Decode(&entry); err != nil {
+				return err
+			}
+			if entry.Name != "" {
+				(*v)[entry.Name] = entry.Value
+			}
+		}
+	}
+	return nil
+}
 
 // Pipeline is the top-level representation of an azure-pipelines.yml file.
 type Pipeline struct {
-	Name      string            `yaml:"name"`
-	Trigger   Trigger           `yaml:"trigger"`
-	PR        PRTrigger         `yaml:"pr"`
-	Pool      Pool              `yaml:"pool"`
-	Variables map[string]string `yaml:"variables"`
-	Stages    []Stage           `yaml:"stages"`
+	Name      string    `yaml:"name"`
+	Trigger   Trigger   `yaml:"trigger"`
+	PR        PRTrigger `yaml:"pr"`
+	Pool      Pool      `yaml:"pool"`
+	Variables Variables `yaml:"variables"`
+	Stages    []Stage   `yaml:"stages"`
 	// Flat jobs at root level (no stages)
 	Jobs []Job `yaml:"jobs"`
 	// Flat steps at root level (no stages/jobs)
@@ -19,13 +54,50 @@ type Pipeline struct {
 type Trigger struct {
 	Branches BranchFilter `yaml:"branches"`
 	Paths    PathFilter   `yaml:"paths"`
-	// Simple string form: "none" or branch names
-	Raw string `yaml:"-"`
+	Raw      string       `yaml:"-"`
+}
+
+func (t *Trigger) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		t.Raw = value.Value
+	case yaml.SequenceNode:
+		for _, n := range value.Content {
+			t.Branches.Include = append(t.Branches.Include, n.Value)
+		}
+	case yaml.MappingNode:
+		type triggerAlias Trigger
+		var alias triggerAlias
+		if err := value.Decode(&alias); err != nil {
+			return err
+		}
+		*t = Trigger(alias)
+	}
+	return nil
 }
 
 type PRTrigger struct {
 	Branches BranchFilter `yaml:"branches"`
 	Drafts   bool         `yaml:"drafts"`
+}
+
+func (t *PRTrigger) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// "none" or similar — no-op
+	case yaml.SequenceNode:
+		for _, n := range value.Content {
+			t.Branches.Include = append(t.Branches.Include, n.Value)
+		}
+	case yaml.MappingNode:
+		type prAlias PRTrigger
+		var alias prAlias
+		if err := value.Decode(&alias); err != nil {
+			return err
+		}
+		*t = PRTrigger(alias)
+	}
+	return nil
 }
 
 type BranchFilter struct {
@@ -48,9 +120,9 @@ type Stage struct {
 	DisplayName string            `yaml:"displayName"`
 	DependsOn   []string          `yaml:"-"` // parsed manually (string or []string)
 	Condition   string            `yaml:"condition"`
-	Variables   map[string]string `yaml:"variables"`
-	Pool        *Pool             `yaml:"pool"`
-	Jobs        []Job             `yaml:"jobs"`
+	Variables   Variables `yaml:"variables"`
+	Pool        *Pool     `yaml:"pool"`
+	Jobs        []Job     `yaml:"jobs"`
 }
 
 type Job struct {
@@ -58,9 +130,9 @@ type Job struct {
 	DisplayName      string            `yaml:"displayName"`
 	DependsOn        []string          `yaml:"-"` // parsed manually
 	Condition        string            `yaml:"condition"`
-	Pool             *Pool             `yaml:"pool"`
-	Variables        map[string]string `yaml:"variables"`
-	TimeoutInMinutes int               `yaml:"timeoutInMinutes"`
+	Pool             *Pool     `yaml:"pool"`
+	Variables        Variables `yaml:"variables"`
+	TimeoutInMinutes int       `yaml:"timeoutInMinutes"`
 	Steps            []Step            `yaml:"steps"`
 	// Deployment job fields
 	Deployment  string    `yaml:"deployment"`
