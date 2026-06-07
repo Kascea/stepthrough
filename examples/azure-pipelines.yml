@@ -15,10 +15,11 @@ variables:
 # job. On Microsoft-hosted agents the toolchain is pre-cached, so the "install"
 # is really a fast version-select rather than a full download.
 #
-# -tags=server is required on every go command to exclude the Wails desktop
-# application layer from server/CI builds. The stepthrough-agent image includes
-# pkg-config, libgtk-3-dev, and libwebkit2gtk-4.0-dev so Wails CGo packages
-# compile correctly without stubs, matching real Azure hosted agent capability.
+# -tags=server is required on every go command to exclude main.go (the Wails
+# desktop entry point, which needs CGo + GTK4/WebKit headers). Microsoft-hosted
+# agents do not ship those headers, so the desktop layer must be compile-gated
+# behind //go:build !server. All library packages (pipeline, runner, etc.) build
+# cleanly without the tag.
 
 stages:
   - stage: Lint

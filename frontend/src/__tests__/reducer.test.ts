@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TabState, TabStatus, SavedRun, PipelineState, PipelineFileEvent } from '../types'
+import { TabState, TabStatus, SavedRun, PipelineState, PipelineFileEvent, StepStatus } from '../types'
 
 // Inline the reducer types and logic so tests have no dependency on
 // @wailsio/runtime (which is only available in a Wails webview).
@@ -176,7 +176,7 @@ describe('step:done', () => {
     }
   }
 
-  function makeStep(index: number, status: string, durationMs = 0) {
+  function makeStep(index: number, status: StepStatus, durationMs = 0) {
     return { index, stageName: 'S', jobName: 'J', label: `step-${index}`, type: 'script', status, exitCode: 0, durationMs } as const
   }
 

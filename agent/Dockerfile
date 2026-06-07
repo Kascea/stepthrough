@@ -8,13 +8,9 @@ ARG DOTNET_CHANNEL=10.0
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/usr/local/go/bin:$PATH"
 
-# Base tools + GTK4/WebKitGTK 6.0 dev headers (matches Azure ubuntu-latest capability).
-# Required for go vet/build to compile Wails v3 CGo packages without stubs.
-# Ubuntu 24.04 ships Python 3.12, GTK4, and WebKitGTK 6.0 natively — no PPAs needed.
 RUN apt-get update -qq && \
     apt-get install -y -qq \
       git curl ca-certificates build-essential pkg-config \
-      libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev \
       python${PYTHON_VERSION} python3-pip \
     && rm -rf /var/lib/apt/lists/*
 

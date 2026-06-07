@@ -17,6 +17,20 @@ Desktop app (Wails v3 + React/TypeScript) for running Azure Pipelines locally wi
 
 All pipeline events are wrapped as `PipelineFileEvent{File, Data}` so the frontend can route them to the correct tab.
 
+## Agent image (`agent/Dockerfile`)
+
+The `agent/` Dockerfile builds `ghcr.io/kascea/stepthrough-agent:latest` — the container stepthrough uses to run pipeline steps locally. **It must mirror Azure's `ubuntu-latest` hosted agent as closely as possible**, because the whole point of the app is that pipelines run the same way locally as they do in Azure.
+
+This means:
+- Same OS base (`ubuntu:24.04`, matching Azure's current `ubuntu-latest`)
+- Same pre-installed toolchain versions (Go, Node, .NET, Python)
+- Same system libraries as Azure's hosted agent — do not add packages that Azure doesn't ship (e.g. GTK4/WebKit dev headers are absent from Azure's agent and must stay absent here too)
+- When Azure bumps a tool version, bump the agent image to match
+
+Do not add packages to the Dockerfile without first confirming they are present on Azure's `ubuntu-latest` hosted agent. The goal is parity, not a fully-featured dev image.
+
+The CI pipeline itself (`examples/azure-pipelines.yml`) runs on Microsoft-hosted agents (not the stepthrough-agent image). Because those agents lack GTK4 headers, Go packages that need CGo/Wails must be gated behind `//go:build !server` so that `go build/test -tags=server ./...` in CI skips the Wails desktop layer entirely.
+
 ## Running the app
 
 ```
