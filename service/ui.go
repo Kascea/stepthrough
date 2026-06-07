@@ -1,26 +1,20 @@
 package service
 
-import "github.com/wailsapp/wails/v3/pkg/application"
-
-// UIService handles UI-layer interactions that require a live Wails app.
+// UIService handles UI-layer interactions that require platform dialogs.
+// The openFile function is injected by main.go so this package stays free
+// of any Wails or CGo dependency and can be tested in CI without GTK headers.
 type UIService struct {
-	app      *application.App
+	openFile func(title string) (string, error)
 	pipeline *PipelineService
 }
 
-func NewUIService(pipeline *PipelineService) *UIService {
-	return &UIService{pipeline: pipeline}
+func NewUIService(pipeline *PipelineService, openFile func(title string) (string, error)) *UIService {
+	return &UIService{pipeline: pipeline, openFile: openFile}
 }
-
-func (u *UIService) SetApp(app *application.App) { u.app = app }
 
 // SelectAndAdd opens a file dialog and adds the chosen file as a new pipeline tab.
 func (u *UIService) SelectAndAdd() string {
-	file, err := u.app.Dialog.OpenFile().
-		SetTitle("Select azure-pipelines.yml").
-		AddFilter("YAML files (*.yml, *.yaml)", "*.yml;*.yaml").
-		AddFilter("All files", "*").
-		PromptForSingleSelection()
+	file, err := u.openFile("Select azure-pipelines.yml")
 	if err != nil || file == "" {
 		return ""
 	}
@@ -31,11 +25,7 @@ func (u *UIService) SelectAndAdd() string {
 // RelocateAndWatch opens a file dialog to locate a moved pipeline file.
 // Relocates the old tab to the new file path and starts watching it.
 func (u *UIService) RelocateAndWatch(oldFile string) string {
-	file, err := u.app.Dialog.OpenFile().
-		SetTitle("Locate pipeline file").
-		AddFilter("YAML files (*.yml, *.yaml)", "*.yml;*.yaml").
-		AddFilter("All files", "*").
-		PromptForSingleSelection()
+	file, err := u.openFile("Locate pipeline file")
 	if err != nil || file == "" {
 		return ""
 	}

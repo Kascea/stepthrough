@@ -7,8 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"github.com/kascea/stepthrough/orchestrator"
 	"github.com/kascea/stepthrough/runner"
 	"github.com/kascea/stepthrough/session"
@@ -31,7 +29,7 @@ type SessionData struct {
 // It wires orchestrator event sinks, handles session persistence, and exposes
 // all Wails RPC methods. Structural logic lives in the sub-modules.
 type PipelineService struct {
-	app     *application.App
+	emitFn  func(event string, data any)
 	factory orchestrator.ExecutorFactory
 	tabs    *tabManager
 	logs    *logStore
@@ -52,7 +50,7 @@ func NewPipelineService(factory orchestrator.ExecutorFactory) *PipelineService {
 	return svc
 }
 
-func (s *PipelineService) SetApp(app *application.App) { s.app = app }
+func (s *PipelineService) SetEmitter(fn func(event string, data any)) { s.emitFn = fn }
 
 // SetPendingFile stores a CLI-provided pipeline file to open on startup.
 func (s *PipelineService) SetPendingFile(file string) {
@@ -62,8 +60,8 @@ func (s *PipelineService) SetPendingFile(file string) {
 }
 
 func (s *PipelineService) emit(event string, data any) {
-	if s.app != nil {
-		s.app.Event.Emit(event, data)
+	if s.emitFn != nil {
+		s.emitFn(event, data)
 	}
 }
 

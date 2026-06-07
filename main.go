@@ -31,9 +31,19 @@ func main() {
 
 	pipelineSvc := service.NewPipelineService(factory)
 
+	// app is assigned before any user interaction, so the closures below are
+	// safe to call lazily (they are only triggered by button clicks).
 	var app *application.App
 
-	uiSvc := service.NewUIService(pipelineSvc)
+	openFile := func(title string) (string, error) {
+		return app.Dialog.OpenFile().
+			SetTitle(title).
+			AddFilter("YAML files (*.yml, *.yaml)", "*.yml;*.yaml").
+			AddFilter("All files", "*").
+			PromptForSingleSelection()
+	}
+
+	uiSvc := service.NewUIService(pipelineSvc, openFile)
 
 	app = application.New(application.Options{
 		Name:        "stepthrough",
@@ -50,8 +60,9 @@ func main() {
 		},
 	})
 
-	pipelineSvc.SetApp(app)
-	uiSvc.SetApp(app)
+	pipelineSvc.SetEmitter(func(event string, data any) {
+		app.Event.Emit(event, data)
+	})
 
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "stepthrough",
