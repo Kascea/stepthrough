@@ -30,7 +30,9 @@ This means:
 
 Do not add packages to the Dockerfile without first confirming they are present on Azure's `ubuntu-latest` hosted agent. The goal is parity, not a fully-featured dev image.
 
-**CGo / Wails headers**: The agent image does NOT include `libgtk-4-dev`, `libwebkitgtk-6.0-dev`, or `libsoup-3.0-dev` — these are build-time dev headers, not runtime libraries, and Azure's hosted agent doesn't ship them either. The CI pipeline (`examples/azure-pipelines.yml`) installs them explicitly via `apt-get` before every job that compiles Go code. This is the correct place for build dependencies — not the agent image, which is a runtime environment.
+**CGo / Wails headers**: The agent image does NOT include `libgtk-4-dev`, `libwebkitgtk-6.0-dev`, or `libsoup-3.0-dev` — these are build-time dev headers, not runtime libraries, and Azure's hosted agent doesn't ship them either. The CI pipeline (`examples/azure-pipelines.yml`) explicitly targets library packages (`./pipeline/...`, `./orchestrator/...`, `./service/...`, `./runner/...`, `./session/...`) rather than `./...`, so `main.go` — which imports Wails and needs CGo headers — is never compiled in CI. The desktop binary is built locally via `wails3 build`.
+
+**User**: The container runs as the `vsts` non-root user with passwordless `sudo`, matching Azure's hosted agent. Pipeline scripts that need root (e.g. `apt-get`) must use `sudo`.
 
 ## Running the app
 

@@ -11,6 +11,21 @@ import (
 
 const workspacePath = "/workspace"
 
+// bootstrapScript runs once after the container starts.
+// Uses sudo when available (non-root user, matching Azure's hosted agent) and
+// falls back to direct invocation when running as root (e.g. older images).
+const bootstrapScript = `
+if command -v apt-get >/dev/null 2>&1; then
+  if command -v sudo >/dev/null 2>&1; then
+    sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates >/dev/null 2>&1
+  else
+    apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates >/dev/null 2>&1
+  fi
+fi
+git config --global --add safe.directory '*'
+mkdir -p /workspace/_artifacts
+`
+
 // Container is a running Docker container that persists across steps in a job.
 // All steps in a job share the same container so they share filesystem state.
 type Container struct {
@@ -72,13 +87,7 @@ func Start(ctx context.Context, name, image, hostWorkDir string, pipelineVars ma
 	// Bootstrap: ensure base tools are present (no-op on agent image).
 	// Mark /workspace safe so go build's VCS stamping doesn't fail when the
 	// directory is owned by a different UID than the container user.
-	_, _ = c.execScript(ctx, `
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates >/dev/null 2>&1
-fi
-git config --global --add safe.directory '*'
-mkdir -p /workspace/_artifacts
-`, nil, io.Discard)
+	_, _ = c.execScript(ctx, bootstrapScript, nil, io.Discard)
 
 	return c, nil
 }

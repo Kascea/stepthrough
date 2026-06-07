@@ -11,15 +11,14 @@ pool:
 variables:
   goVersion: "1.25.4"
 
-# Each job runs on its own fresh agent — that is why GoTool@0 and the CGo
-# header install step appear in every job that compiles Go code.
+# Each job runs on its own fresh agent — that is why GoTool@0 appears in every
+# job. On Microsoft-hosted agents the toolchain is pre-cached, so the "install"
+# is really a fast version-select rather than a full download.
 #
-# Wails v3 uses CGo and requires GTK4 + WebKitGTK 6.0 dev headers to compile
-# on Linux. Microsoft-hosted ubuntu-latest agents do not ship these packages,
-# so every job that runs go build/vet/test must install them first.
-# This is intentional: the stepthrough-agent Docker image deliberately does NOT
-# include these headers (it mirrors the Azure hosted-agent runtime environment),
-# so they must come from the pipeline itself when building the desktop app.
+# Go commands explicitly target library packages rather than ./... to avoid
+# compiling main.go, which imports Wails and requires CGo + GTK4/WebKit headers
+# that Microsoft-hosted agents do not have. The desktop binary is built locally
+# via wails3 build, not in CI.
 
 stages:
   - stage: Lint
@@ -37,11 +36,6 @@ stages:
               version: "$(goVersion)"
 
           - script: |
-              apt-get update -qq
-              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
-            displayName: Install CGo headers (Wails/GTK4)
-
-          - script: |
               unformatted=$(gofmt -l $(find "$BUILD_SOURCESDIRECTORY" -name '*.go' -not -path '*/frontend/*'))
               if [ -n "$unformatted" ]; then
                 echo "Unformatted files:"
@@ -52,7 +46,7 @@ stages:
             displayName: Check formatting (gofmt)
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" vet ./...
+              go -C "$BUILD_SOURCESDIRECTORY" vet ./pipeline/... ./orchestrator/... ./service/... ./runner/... ./session/...
               echo "go vet passed."
             displayName: Vet (go vet)
 
@@ -72,12 +66,7 @@ stages:
               version: "$(goVersion)"
 
           - script: |
-              apt-get update -qq
-              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
-            displayName: Install CGo headers (Wails/GTK4)
-
-          - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" build ./...
+              go -C "$BUILD_SOURCESDIRECTORY" build ./pipeline/... ./orchestrator/... ./service/... ./runner/... ./session/...
               echo "Build successful."
             displayName: Build (go build)
 
@@ -99,16 +88,11 @@ stages:
               version: "$(goVersion)"
 
           - script: |
-              apt-get update -qq
-              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
-            displayName: Install CGo headers (Wails/GTK4)
-
-          - script: |
               go -C "$BUILD_SOURCESDIRECTORY" test ./pipeline/... ./orchestrator/... ./service/... -v -count=1
             displayName: Unit tests
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" test ./... -count=1 -coverprofile=coverage.out
+              go -C "$BUILD_SOURCESDIRECTORY" test ./pipeline/... ./orchestrator/... ./service/... ./runner/... ./session/... -count=1 -coverprofile=coverage.out
               go -C "$BUILD_SOURCESDIRECTORY" tool cover -func=coverage.out | tail -1
             displayName: Coverage report
 
@@ -122,11 +106,6 @@ stages:
             displayName: Install Go $(goVersion)
             inputs:
               version: "$(goVersion)"
-
-          - script: |
-              apt-get update -qq
-              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
-            displayName: Install CGo headers (Wails/GTK4)
 
           - script: |
               go -C "$BUILD_SOURCESDIRECTORY" test ./runner/... -v -count=1

@@ -40,6 +40,15 @@ func TestChanLineWriterForwardsLines(t *testing.T) {
 	}
 }
 
+// TestBootstrapScript_SudoConditional guards against unconditional sudo usage.
+// The agent image runs as a non-root user with sudo, but older images (and any
+// root-based container) do not have sudo installed — the bootstrap must handle both.
+func TestBootstrapScript_SudoConditional(t *testing.T) {
+	if !strings.Contains(bootstrapScript, "command -v sudo") {
+		t.Error("bootstrapScript must check for sudo before using it; unconditional sudo fails on root containers without sudo installed")
+	}
+}
+
 func TestEngineSetup_DockerUnavailable(t *testing.T) {
 	old := dockerChecker
 	dockerChecker = func() bool { return false }

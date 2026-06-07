@@ -10,9 +10,14 @@ ENV PATH="/usr/local/go/bin:$PATH"
 
 RUN apt-get update -qq && \
     apt-get install -y -qq \
-      git curl ca-certificates build-essential pkg-config \
+      git curl ca-certificates build-essential pkg-config sudo \
       python${PYTHON_VERSION} python3-pip \
     && rm -rf /var/lib/apt/lists/*
+
+# Non-root user with passwordless sudo — mirrors Azure's hosted agent (vsts user).
+RUN useradd -m -s /bin/bash vsts && \
+    echo "vsts ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/vsts && \
+    chmod 0440 /etc/sudoers.d/vsts
 
 # Go (arch-aware: maps uname -m → Go's naming convention)
 RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
@@ -33,3 +38,4 @@ RUN curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh && 
     rm /tmp/dotnet-install.sh
 
 WORKDIR /workspace
+USER vsts
