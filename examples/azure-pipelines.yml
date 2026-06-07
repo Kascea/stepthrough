@@ -11,15 +11,15 @@ pool:
 variables:
   goVersion: "1.25.4"
 
-# Each job runs on its own fresh agent — that is why GoTool@0 appears in every
-# job. On Microsoft-hosted agents the toolchain is pre-cached, so the "install"
-# is really a fast version-select rather than a full download.
+# Each job runs on its own fresh agent — that is why GoTool@0 and the CGo
+# header install step appear in every job that compiles Go code.
 #
-# -tags=server is required on every go command to exclude main.go (the Wails
-# desktop entry point, which needs CGo + GTK4/WebKit headers). Microsoft-hosted
-# agents do not ship those headers, so the desktop layer must be compile-gated
-# behind //go:build !server. All library packages (pipeline, runner, etc.) build
-# cleanly without the tag.
+# Wails v3 uses CGo and requires GTK4 + WebKitGTK 6.0 dev headers to compile
+# on Linux. Microsoft-hosted ubuntu-latest agents do not ship these packages,
+# so every job that runs go build/vet/test must install them first.
+# This is intentional: the stepthrough-agent Docker image deliberately does NOT
+# include these headers (it mirrors the Azure hosted-agent runtime environment),
+# so they must come from the pipeline itself when building the desktop app.
 
 stages:
   - stage: Lint
@@ -37,6 +37,11 @@ stages:
               version: "$(goVersion)"
 
           - script: |
+              apt-get update -qq
+              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+            displayName: Install CGo headers (Wails/GTK4)
+
+          - script: |
               unformatted=$(gofmt -l $(find "$BUILD_SOURCESDIRECTORY" -name '*.go' -not -path '*/frontend/*'))
               if [ -n "$unformatted" ]; then
                 echo "Unformatted files:"
@@ -47,7 +52,7 @@ stages:
             displayName: Check formatting (gofmt)
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" vet -tags=server ./...
+              go -C "$BUILD_SOURCESDIRECTORY" vet ./...
               echo "go vet passed."
             displayName: Vet (go vet)
 
@@ -67,7 +72,12 @@ stages:
               version: "$(goVersion)"
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" build -tags=server ./...
+              apt-get update -qq
+              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+            displayName: Install CGo headers (Wails/GTK4)
+
+          - script: |
+              go -C "$BUILD_SOURCESDIRECTORY" build ./...
               echo "Build successful."
             displayName: Build (go build)
 
@@ -89,11 +99,16 @@ stages:
               version: "$(goVersion)"
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./pipeline/... ./orchestrator/... ./service/... -v -count=1
+              apt-get update -qq
+              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+            displayName: Install CGo headers (Wails/GTK4)
+
+          - script: |
+              go -C "$BUILD_SOURCESDIRECTORY" test ./pipeline/... ./orchestrator/... ./service/... -v -count=1
             displayName: Unit tests
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./... -count=1 -coverprofile=coverage.out
+              go -C "$BUILD_SOURCESDIRECTORY" test ./... -count=1 -coverprofile=coverage.out
               go -C "$BUILD_SOURCESDIRECTORY" tool cover -func=coverage.out | tail -1
             displayName: Coverage report
 
@@ -109,7 +124,12 @@ stages:
               version: "$(goVersion)"
 
           - script: |
-              go -C "$BUILD_SOURCESDIRECTORY" test -tags=server ./runner/... -v -count=1
+              apt-get update -qq
+              apt-get install -y -qq libgtk-4-dev libwebkitgtk-6.0-dev libsoup-3.0-dev
+            displayName: Install CGo headers (Wails/GTK4)
+
+          - script: |
+              go -C "$BUILD_SOURCESDIRECTORY" test ./runner/... -v -count=1
             displayName: Runner integration tests
 
   # Runs after tests, only on main, only when agent/Dockerfile changed.

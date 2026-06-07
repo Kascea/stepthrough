@@ -24,12 +24,13 @@ The `agent/` Dockerfile builds `ghcr.io/kascea/stepthrough-agent:latest` — the
 This means:
 - Same OS base (`ubuntu:24.04`, matching Azure's current `ubuntu-latest`)
 - Same pre-installed toolchain versions (Go, Node, .NET, Python)
-- Same system libraries as Azure's hosted agent — do not add packages that Azure doesn't ship (e.g. GTK4/WebKit dev headers are absent from Azure's agent and must stay absent here too)
+- Same OS base and pre-installed toolchain versions (Go, Node, .NET, Python) as Azure's `ubuntu-latest` hosted agent
+- Same runtime libraries — do not add packages that Azure's agent doesn't ship
 - When Azure bumps a tool version, bump the agent image to match
 
 Do not add packages to the Dockerfile without first confirming they are present on Azure's `ubuntu-latest` hosted agent. The goal is parity, not a fully-featured dev image.
 
-The CI pipeline itself (`examples/azure-pipelines.yml`) runs on Microsoft-hosted agents (not the stepthrough-agent image). Because those agents lack GTK4 headers, Go packages that need CGo/Wails must be gated behind `//go:build !server` so that `go build/test -tags=server ./...` in CI skips the Wails desktop layer entirely.
+**CGo / Wails headers**: The agent image does NOT include `libgtk-4-dev`, `libwebkitgtk-6.0-dev`, or `libsoup-3.0-dev` — these are build-time dev headers, not runtime libraries, and Azure's hosted agent doesn't ship them either. The CI pipeline (`examples/azure-pipelines.yml`) installs them explicitly via `apt-get` before every job that compiles Go code. This is the correct place for build dependencies — not the agent image, which is a runtime environment.
 
 ## Running the app
 
