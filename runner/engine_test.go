@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/colecarlson/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/pipeline"
 )
 
 // TestChanLineWriterForwardsLines guards against regressions where step output

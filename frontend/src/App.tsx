@@ -1,4 +1,5 @@
 import { useEffect, useReducer } from 'react'
+import { flushSync } from 'react-dom'
 import { Events, Call } from '@wailsio/runtime'
 import './app.css'
 
@@ -241,13 +242,23 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
 
     case 'step:done': {
-      const { file, data: pipeline } = action.payload
+      const { file, data: incoming } = action.payload
       return {
         ...state,
-        tabs: updateTab(state.tabs, file, t => ({
-          ...t,
-          status: { kind: 'running', pipeline },
-        })),
+        tabs: updateTab(state.tabs, file, t => {
+          // Preserve any step already marked 'running' in local state — the
+          // step:done snapshot is taken before the next step:started fires on
+          // the backend, so it can arrive after flushSync has already rendered
+          // the next step as 'running'. Overwriting that with 'pending' would
+          // kill the spinner.
+          const current = pipelineOf(t.status)
+          const steps = incoming.steps.map((s, i) =>
+            current?.steps[i]?.status === 'running' && s.status === 'pending'
+              ? current.steps[i]
+              : s
+          )
+          return { ...t, status: { kind: 'running', pipeline: { ...incoming, steps } } }
+        }),
       }
     }
 
@@ -303,7 +314,7 @@ export default function App() {
   useEffect(() => {
     if (state.dockerReady === true) return
     const check = () => {
-      Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.CheckDockerReady')
+      Call.ByName('github.com/kascea/stepthrough/service.PipelineService.CheckDockerReady')
         .then((ready: boolean) => dispatch({ type: 'docker:status', payload: ready }))
         .catch(() => dispatch({ type: 'docker:status', payload: false }))
     }
@@ -336,7 +347,7 @@ export default function App() {
         dispatch({ type: 'pipeline:tab:relocated', payload: e })
       )),
       Events.On('step:started', unwrap<number>(e =>
-        dispatch({ type: 'step:started', payload: e })
+        flushSync(() => dispatch({ type: 'step:started', payload: e }))
       )),
       Events.On('step:log', unwrap<LogLine>(e =>
         dispatch({ type: 'step:log', payload: e })
@@ -355,7 +366,7 @@ export default function App() {
       )),
     ]
 
-    Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.GetSession')
+    Call.ByName('github.com/kascea/stepthrough/service.PipelineService.GetSession')
       .then((data: SessionData) => dispatch({ type: 'session:restored', payload: data }))
       .catch(console.error)
 
@@ -366,30 +377,30 @@ export default function App() {
   const activePipeline = activeTab ? pipelineOf(activeTab.status) : null
 
   const addPipeline = () => {
-    Call.ByName('github.com/colecarlson/stepthrough/service.UIService.SelectAndAdd').catch(console.error)
+    Call.ByName('github.com/kascea/stepthrough/service.UIService.SelectAndAdd').catch(console.error)
   }
 
   const closeTab = (file: string) => {
     dispatch({ type: 'tab:removed', payload: file })
-    Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.RemoveTab', file).catch(console.error)
+    Call.ByName('github.com/kascea/stepthrough/service.PipelineService.RemoveTab', file).catch(console.error)
   }
 
   const switchTab = (file: string) => {
     dispatch({ type: 'tab:activated', payload: file })
-    Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.SetActiveTab', file).catch(console.error)
+    Call.ByName('github.com/kascea/stepthrough/service.PipelineService.SetActiveTab', file).catch(console.error)
   }
 
   const runPipeline = (file: string) => {
     if (!activeTab || activeTab.status.kind !== 'loaded') return
-    Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.RunPipeline', file, 0).catch(console.error)
+    Call.ByName('github.com/kascea/stepthrough/service.PipelineService.RunPipeline', file, 0).catch(console.error)
   }
 
   const cancelPipeline = (file: string) => {
-    Call.ByName('github.com/colecarlson/stepthrough/service.PipelineService.CancelPipeline', file).catch(console.error)
+    Call.ByName('github.com/kascea/stepthrough/service.PipelineService.CancelPipeline', file).catch(console.error)
   }
 
   const relocate = (file: string) => {
-    Call.ByName('github.com/colecarlson/stepthrough/service.UIService.RelocateAndWatch', file).catch(console.error)
+    Call.ByName('github.com/kascea/stepthrough/service.UIService.RelocateAndWatch', file).catch(console.error)
   }
 
   const showSplash = state.dockerReady !== true || state.tabs.length === 0

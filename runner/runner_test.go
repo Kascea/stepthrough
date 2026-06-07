@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/colecarlson/stepthrough/pipeline"
-	"github.com/colecarlson/stepthrough/runner"
+	"github.com/kascea/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/runner"
 )
 
 func TestMain(m *testing.M) {
@@ -117,8 +117,8 @@ func TestResolveImage_UbuntuLatest(t *testing.T) {
 	if !ok {
 		t.Fatal("ubuntu-latest should be supported")
 	}
-	if img != "ubuntu:22.04" {
-		t.Errorf("image = %q, want 'ubuntu:22.04'", img)
+	if img != runner.DefaultImage {
+		t.Errorf("image = %q, want %q", img, runner.DefaultImage)
 	}
 }
 
@@ -127,8 +127,8 @@ func TestResolveImage_UbuntuExact(t *testing.T) {
 	if !ok {
 		t.Fatal("ubuntu-22.04 should be supported")
 	}
-	if img != "ubuntu:22.04" {
-		t.Errorf("image = %q, want 'ubuntu:22.04'", img)
+	if img != runner.DefaultImage {
+		t.Errorf("image = %q, want %q", img, runner.DefaultImage)
 	}
 }
 

@@ -3,8 +3,8 @@ package service
 import (
 	"testing"
 
-	"github.com/colecarlson/stepthrough/orchestrator"
-	"github.com/colecarlson/stepthrough/runner"
+	"github.com/kascea/stepthrough/orchestrator"
+	"github.com/kascea/stepthrough/runner"
 )
 
 func newTestService() *PipelineService {

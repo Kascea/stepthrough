@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/colecarlson/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/pipeline"
 )
 
 // fixture loads a YAML file from the examples/fixtures directory.
@@ -342,7 +342,7 @@ func TestDeploymentJob_InMainExample(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse main example: %v", err)
 	}
-	deployStage := p.Stages[3]
+	deployStage := p.Stages[4]
 	job := deployStage.Jobs[0]
 	if job.Deployment != "DeployStaging" {
 		t.Errorf("deploy job.Deployment = %q, want 'DeployStaging'", job.Deployment)
@@ -451,8 +451,8 @@ func TestParseMainExample(t *testing.T) {
 	if p.Name != "stepthrough-ci" {
 		t.Errorf("name = %q, want 'stepthrough-ci'", p.Name)
 	}
-	if len(p.Stages) != 4 {
-		t.Fatalf("expected 4 stages, got %d", len(p.Stages))
+	if len(p.Stages) != 5 {
+		t.Fatalf("expected 5 stages, got %d", len(p.Stages))
 	}
 	// Validate trigger
 	if len(p.Trigger.Branches.Include) != 1 {

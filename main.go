@@ -10,10 +10,10 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/colecarlson/stepthrough/orchestrator"
-	"github.com/colecarlson/stepthrough/runner"
-	"github.com/colecarlson/stepthrough/service"
-	"github.com/colecarlson/stepthrough/session"
+	"github.com/kascea/stepthrough/orchestrator"
+	"github.com/kascea/stepthrough/runner"
+	"github.com/kascea/stepthrough/service"
+	"github.com/kascea/stepthrough/session"
 )
 
 //go:embed all:frontend/dist

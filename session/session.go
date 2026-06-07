@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/colecarlson/stepthrough/orchestrator"
+	"github.com/kascea/stepthrough/orchestrator"
 )
 
 // MaxLogsPerStep caps how many log lines we persist per step.

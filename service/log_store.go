@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/colecarlson/stepthrough/orchestrator"
-	"github.com/colecarlson/stepthrough/session"
+	"github.com/kascea/stepthrough/orchestrator"
+	"github.com/kascea/stepthrough/session"
 )
 
 // logStore captures and bounds log lines per pipeline file and step index.

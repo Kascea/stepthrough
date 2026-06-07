@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/colecarlson/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/pipeline"
 )
 
 // Executor runs pipeline steps in an isolated environment (e.g. a Docker container).
@@ -201,6 +201,13 @@ func (o *Orchestrator) Cleanup(ctx context.Context) {
 	}
 }
 
+// warmFuture holds a pre-warmed executor whose Setup is running in the background.
+type warmFuture struct {
+	key   string
+	exec  Executor
+	errCh <-chan error
+}
+
 func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps []StepState, startIndex int, file string, runID int) {
 	defer func() {
 		o.mu.Lock()
@@ -219,6 +226,8 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 	flat := pipeline.Flatten(p)
 	var currentKey string
 	var currentExec Executor
+	var warm *warmFuture // pre-warming for the next job
+
 	cleanupCurrent := func() {
 		if currentExec == nil {
 			return
@@ -230,6 +239,35 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 		currentKey = ""
 	}
 	defer cleanupCurrent()
+
+	// startPreWarm scans forward from position i to find the next distinct job
+	// and starts its container setup in a background goroutine.
+	startPreWarm := func(i int, afterKey string) {
+		if warm != nil {
+			return // already warming
+		}
+		for j := i + 1; j < len(flat); j++ {
+			nextKey := jobRuntimeKey(flat[j])
+			if nextKey == afterKey || flat[j].IsDeploymentJob {
+				continue
+			}
+			nextFs := flat[j]
+			nextJob := &p.Stages[nextFs.StageIndex].Jobs[nextFs.JobIndex]
+			nextExec := o.factory(workDir)
+			errCh := make(chan error, 1)
+			o.registerExecutor(nextKey, nextExec)
+			go func() {
+				warmCh := make(chan string, 32)
+				go func() {
+					for range warmCh {
+					}
+				}() // discard; logs shown when job starts
+				errCh <- nextExec.Setup(ctx, p, nextJob, containerNameForJob(nextFs), warmCh)
+			}()
+			warm = &warmFuture{key: nextKey, exec: nextExec, errCh: errCh}
+			return
+		}
+	}
 
 	for i := startIndex; i < len(flat) && i < len(steps); i++ {
 		select {
@@ -263,12 +301,6 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 		}
 
 		if currentExec == nil {
-			job := &p.Stages[fs.StageIndex].Jobs[fs.JobIndex]
-			exec := o.factory(workDir)
-			currentKey = key
-			currentExec = exec
-			o.registerExecutor(key, exec)
-
 			setupCh := make(chan string, 100)
 			var setupWg sync.WaitGroup
 			setupWg.Add(1)
@@ -278,21 +310,50 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 					o.sink("setup:log", line)
 				}
 			}()
-			setupCh <- fmt.Sprintf("[stepthrough] setting up job %s", fs.JobName)
-			err := exec.Setup(ctx, p, job, containerNameForJob(fs), setupCh)
+
+			if warm != nil && warm.key == key {
+				// Use the pre-warmed container; wait for setup to finish.
+				setupCh <- fmt.Sprintf("[stepthrough] waiting for pre-warmed container for job %s", fs.JobName)
+				if err := <-warm.errCh; err != nil {
+					close(setupCh)
+					setupWg.Wait()
+					o.sink("pipeline:setup-error", err.Error())
+					return
+				}
+				setupCh <- fmt.Sprintf("[stepthrough] container ready (pre-warmed, job %s)", fs.JobName)
+				currentExec = warm.exec
+				currentKey = warm.key
+				warm = nil
+			} else {
+				job := &p.Stages[fs.StageIndex].Jobs[fs.JobIndex]
+				exec := o.factory(workDir)
+				currentKey = key
+				currentExec = exec
+				o.registerExecutor(key, exec)
+				setupCh <- fmt.Sprintf("[stepthrough] setting up job %s", fs.JobName)
+				if err := exec.Setup(ctx, p, job, containerNameForJob(fs), setupCh); err != nil {
+					close(setupCh)
+					setupWg.Wait()
+					o.sink("pipeline:setup-error", err.Error())
+					return
+				}
+			}
+
 			close(setupCh)
 			setupWg.Wait() // ensure all setup:log events fire before step:started
-			if err != nil {
-				o.sink("pipeline:setup-error", err.Error())
-				return
-			}
+
+			// Kick off pre-warming for the next job now that this container is running.
+			startPreWarm(i, currentKey)
 		}
 
 		o.updateStep(i, func(st *StepState) { st.Status = pipeline.StepStatusRunning })
 		o.sink("step:started", i)
 
 		logCh := make(chan string, 200)
+		var logWg sync.WaitGroup
+		logWg.Add(1)
 		go func(idx int) {
+			defer logWg.Done()
 			for line := range logCh {
 				o.sink("step:log", LogLine{StepIndex: idx, Line: line})
 			}
@@ -300,6 +361,7 @@ func (o *Orchestrator) runSteps(ctx context.Context, p *pipeline.Pipeline, steps
 
 		result := currentExec.RunStep(ctx, fs.Step, logCh)
 		close(logCh)
+		logWg.Wait() // all step:log events must arrive before step:done
 
 		status := pipeline.StepStatusPassed
 		if result.Status == pipeline.StepStatusFailed {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/colecarlson/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/pipeline"
 )
 
 func TestWorkspaceRootUsesGitRoot(t *testing.T) {
@@ -263,17 +263,22 @@ steps:
 		name string
 		data any
 	}
+	// doneChs[0] signals first run done; doneChs[1] signals second run done.
+	// Both channels are pre-allocated so the sink never reassigns shared state,
+	// avoiding the race on sync.Once that arises from closing a channel and
+	// immediately replacing the Once before the goroutine has fully returned.
+	doneChs := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
 	var mu sync.Mutex
 	var captured []namedEvent
-	doneCh := make(chan struct{})
-	var once sync.Once
+	doneCount := 0
 	sink := func(name string, data any) {
 		mu.Lock()
 		captured = append(captured, namedEvent{name, data})
-		mu.Unlock()
-		if name == "pipeline:done" {
-			once.Do(func() { close(doneCh) })
+		if name == "pipeline:done" && doneCount < 2 {
+			close(doneChs[doneCount])
+			doneCount++
 		}
+		mu.Unlock()
 	}
 
 	orch := New(factory.newExecutor, sink)
@@ -282,21 +287,19 @@ steps:
 	// First run — steps complete as passed.
 	orch.RunFrom(0)
 	select {
-	case <-doneCh:
+	case <-doneChs[0]:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for first pipeline:done")
 	}
 
-	// Reset for second run.
-	once = sync.Once{}
-	doneCh = make(chan struct{})
+	// Reset captured events for second run.
 	mu.Lock()
 	captured = captured[:0]
 	mu.Unlock()
 
 	orch.RunFrom(0)
 	select {
-	case <-doneCh:
+	case <-doneChs[1]:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second pipeline:done")
 	}

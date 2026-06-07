@@ -6,7 +6,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/colecarlson/stepthrough/orchestrator"
+	"github.com/kascea/stepthrough/orchestrator"
 )
 
 // TabStatus represents the lifecycle state of a pipeline tab.

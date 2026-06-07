@@ -1,4 +1,4 @@
-module github.com/colecarlson/stepthrough
+module github.com/kascea/stepthrough
 
 go 1.25.1
 

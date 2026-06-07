@@ -62,15 +62,13 @@ export default function Sidebar({ steps, selectedStep, onSelectStep }: Props) {
 
             {!isCollapsed && stage.jobs.map(job => {
               const js = stageStatus(job.steps)
-              const jobIconStatus = js === 'running' ? 'pending' : js
               return (
                 <div key={job.name} className="job-block">
                   <div className={`job-header s-${js}`}>
-                    <StatusIcon status={jobIconStatus} size={13} />
+                    <StatusIcon status={js} size={13} />
                     <span>{job.name}</span>
                   </div>
                   {job.steps.map(step => {
-                    const stepIconStatus = step.status === 'running' ? 'pending' : step.status
                     const isCurrent = step.status === 'running'
                     return (
                     <div
@@ -78,7 +76,7 @@ export default function Sidebar({ steps, selectedStep, onSelectStep }: Props) {
                       className={`step-row s-${step.status}${selectedStep === step.index ? ' selected' : ''}${isCurrent ? ' current-step' : ''}`}
                       onClick={e => { e.stopPropagation(); onSelectStep(step.index) }}
                     >
-                      <StatusIcon status={stepIconStatus} size={13} />
+                      <StatusIcon status={step.status} size={13} />
                       <span className="step-label">{step.label}</span>
                       {isCurrent && <span className="step-running-tag">running</span>}
                       {step.durationMs > 0 && (

@@ -113,6 +113,37 @@ seedOrder / ensure / addOrch
 
 `Missing` and `Error` are terminal for the current load; the user must relocate or fix the file (which goes through `ReloadFile` → `Loaded`/`Error`).
 
+## Agent image (`ghcr.io/kascea/stepthrough-agent`)
+
+stepthrough uses a pre-baked Docker image instead of `ubuntu:24.04` as its default execution environment. The image mirrors the Azure hosted-agent model: common tools are installed at build time so tool-install steps (`GoTool@0`, `UseNode@1`, etc.) are no-ops rather than full downloads.
+
+**Pre-installed tools** (see `agent/Dockerfile` for pinned versions):
+
+| Tool | Image version |
+|------|---------------|
+| Go | 1.25.4 |
+| Node | 22 LTS |
+| Python | 3.12 |
+| .NET | 10 |
+
+**Check-then-install adapter pattern**
+
+All tool adapters (`goToolAdapter`, `useNodeAdapter`, `usePythonVersionAdapter`, `useDotNetAdapter`) follow the same pattern:
+
+1. Check if the requested version is already present (`command -v`, `go version`, etc.)
+2. If it matches — print `[stepthrough] <tool> already installed (agent image)` and exit 0
+3. If it doesn't match — print a `WARNING: … use <pre-baked version> for faster builds` message, then install the requested version
+
+This keeps adapters honest about version mismatches without silently running the wrong version.
+
+**Adding a new tool to the image**
+
+1. Add the install layer to `agent/Dockerfile`
+2. Update the pre-installed tools table above
+3. Add the version-check guard to the corresponding adapter in `runner/task_adapters.go`
+
+---
+
 ## Decisions not to relitigate
 
 *(Empty — record rejections here with rationale so future reviews don't re-suggest them.)*

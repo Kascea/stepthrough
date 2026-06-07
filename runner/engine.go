@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/colecarlson/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/pipeline"
 )
 
 // dockerChecker is used by Setup to test Docker availability; override in tests.
@@ -42,9 +42,13 @@ func (e *Engine) Setup(ctx context.Context, p *pipeline.Pipeline, job *pipeline.
 		return fmt.Errorf("Docker is not running — start Docker Desktop and try again")
 	}
 
-	outputCh <- fmt.Sprintf("[stepthrough] pulling image %s...", image)
-	if err := Pull(ctx, image, &chanLineWriter{ch: outputCh}); err != nil {
-		return fmt.Errorf("pull image %s: %w", image, err)
+	if ImageExistsLocally(image) {
+		outputCh <- fmt.Sprintf("[stepthrough] using cached image %s", image)
+	} else {
+		outputCh <- fmt.Sprintf("[stepthrough] pulling image %s...", image)
+		if err := Pull(ctx, image, &chanLineWriter{ch: outputCh}); err != nil {
+			return fmt.Errorf("pull image %s: %w", image, err)
+		}
 	}
 
 	// Remove any stale container with this name (e.g. from a previous crash).

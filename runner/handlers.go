@@ -3,7 +3,7 @@ package runner
 import (
 	"fmt"
 
-	"github.com/colecarlson/stepthrough/pipeline"
+	"github.com/kascea/stepthrough/pipeline"
 )
 
 // ResolveStep selects a local handler for an Azure Pipeline step and returns the

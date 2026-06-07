@@ -69,11 +69,14 @@ func Start(ctx context.Context, name, image, hostWorkDir string, pipelineVars ma
 		return nil, fmt.Errorf("docker run: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
-	// Bootstrap: ensure bash + git + curl are present (no-op if already installed).
+	// Bootstrap: ensure base tools are present (no-op on agent image).
+	// Mark /workspace safe so go build's VCS stamping doesn't fail when the
+	// directory is owned by a different UID than the container user.
 	_, _ = c.execScript(ctx, `
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates >/dev/null 2>&1
 fi
+git config --global --add safe.directory '*'
 mkdir -p /workspace/_artifacts
 `, nil, io.Discard)
 

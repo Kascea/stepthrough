@@ -6,8 +6,10 @@ import (
 	"time"
 )
 
-// DefaultImage is the only supported Docker image for local debugging.
-const DefaultImage = "ubuntu:22.04"
+// DefaultImage is the pre-baked stepthrough agent image published to GHCR.
+// It includes Go, Node, Python, and .NET pre-installed so tool-install steps
+// are no-ops rather than full downloads.
+const DefaultImage = "ghcr.io/kascea/stepthrough-agent:latest"
 
 // IsDockerAvailable returns true if the Docker daemon is reachable.
 func IsDockerAvailable() bool {
@@ -16,9 +18,14 @@ func IsDockerAvailable() bool {
 	return exec.CommandContext(ctx, "docker", "info").Run() == nil
 }
 
+// ImageExistsLocally returns true if the image is already present in the local Docker cache.
+func ImageExistsLocally(image string) bool {
+	return exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", image).Run() == nil
+}
+
 // ResolveImage maps an Azure vmImage to a local Docker image.
-// Currently only ubuntu-latest is supported (running on macOS via Docker Desktop).
-// Returns ("", false) for unsupported platforms.
+// ubuntu-latest and ubuntu-22.04 resolve to the stepthrough-agent image which
+// mirrors the Azure hosted-agent tool set. Returns ("", false) for unsupported platforms.
 func ResolveImage(vmImage string) (image string, ok bool) {
 	switch vmImage {
 	case "", "ubuntu-latest", "ubuntu-22.04":
