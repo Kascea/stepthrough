@@ -52,10 +52,23 @@ ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 curl -fsSL "https://go.dev/dl/${go_version}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz
 rm -rf /usr/local/go
 tar -xzf /tmp/go.tar.gz -C /usr/local
-ln -sf /usr/local/go/bin/go /usr/local/bin/go
-ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
 go version
 `, shellValue(version)), true
+}
+
+type goAdapter struct{}
+
+func (goAdapter) Resolve(ctx taskContext) (string, bool) {
+	command := input(ctx, "command")
+	if command == "custom" {
+		command = input(ctx, "customCommand")
+	}
+	arguments := input(ctx, "arguments")
+	workingDirectory := input(ctx, "workingDirectory")
+	if workingDirectory != "" {
+		return fmt.Sprintf("cd %s && go %s %s", shellValue(workingDirectory), command, arguments), true
+	}
+	return fmt.Sprintf("go %s %s", command, arguments), true
 }
 
 type useDotNetAdapter struct{}
@@ -99,8 +112,8 @@ if command -v node >/dev/null 2>&1; then
   fi
   echo "[stepthrough] WARNING: requested Node $major but agent image has $installed — installing. Use Node $installed for faster builds."
 fi
-curl -fsSL https://deb.nodesource.com/setup_${major}.x | bash -
-apt-get install -y nodejs
+curl -fsSL https://deb.nodesource.com/setup_${major}.x | sudo bash -
+sudo apt-get install -y nodejs
 node --version && npm --version
 `, major), true
 }
@@ -111,13 +124,14 @@ func (usePythonVersionAdapter) Resolve(ctx taskContext) (string, bool) {
 	major := strings.SplitN(input(ctx, "versionSpec"), ".", 2)[0]
 	return fmt.Sprintf(`
 major=%s
+if [ -z "$major" ]; then major=3; fi
 if command -v python${major} >/dev/null 2>&1; then
   echo "[stepthrough] Python $major already installed (agent image)"
   python${major} --version
   exit 0
 fi
 echo "[stepthrough] WARNING: Python $major not pre-installed in agent image — installing. Use a pre-installed version for faster builds."
-apt-get install -y -qq python${major} python${major}-pip
+sudo apt-get update -qq && sudo apt-get install -y -qq python3 python${major} python3-pip python-is-python3
 python${major} --version
 `, major), true
 }
@@ -131,9 +145,31 @@ func (dotNetCoreCLIAdapter) Resolve(ctx taskContext) (string, bool) {
 	// e.g. command=custom, custom=tool, arguments="install --tool-path . foo"
 	// → dotnet tool install --tool-path . foo
 	if command == "custom" {
-		return fmt.Sprintf(`dotnet %s %s`, input(ctx, "custom"), arguments), true
+		subcommand := input(ctx, "custom")
+		// `dotnet tool install` fails with exit code 1 when the tool is already
+		// installed. Azure agents always start fresh so this never surfaces there,
+		// but locally we re-run against the same container. Fall back to `update`
+		// (which is a no-op when already at the latest version).
+		if subcommand == "tool" && strings.HasPrefix(strings.TrimSpace(arguments), "install") {
+			updateArgs := strings.Replace(arguments, "install", "update", 1)
+			return fmt.Sprintf(`dotnet tool %s || dotnet tool %s`, arguments, updateArgs), true
+		}
+		return fmt.Sprintf(`dotnet %s %s`, subcommand, arguments), true
 	}
-	return fmt.Sprintf(`dotnet %s %s %s`, command, input(ctx, "projects"), arguments), true
+	projects := input(ctx, "projects")
+	if command == "test" && projects != "" {
+		// MSBuild's VSTest target (used by dotnet test --no-build) only accepts one
+		// project at a time, so we run dotnet test once per matched project file.
+		noBuildFlag := ""
+		if input(ctx, "nobuild") == "true" {
+			noBuildFlag = "--no-build"
+		}
+		return fmt.Sprintf(`shopt -s globstar
+for proj in %s; do
+  dotnet test "$proj" %s %s
+done`, projects, noBuildFlag, arguments), true
+	}
+	return fmt.Sprintf(`dotnet %s %s %s`, command, projects, arguments), true
 }
 
 type nuGetCommandAdapter struct{}

@@ -52,6 +52,15 @@ var localTasks = map[string]taskDefinition{
 		},
 		Adapter: goToolAdapter{},
 	},
+	"Go": {
+		Inputs: []taskInputDefinition{
+			{Name: "command", Default: "build"},
+			{Name: "customCommand"},
+			{Name: "arguments"},
+			{Name: "workingDirectory"},
+		},
+		Adapter: goAdapter{},
+	},
 	"UseDotNet": {
 		Inputs: []taskInputDefinition{
 			{Name: "version", Default: "8.x"},

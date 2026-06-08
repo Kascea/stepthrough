@@ -185,10 +185,11 @@ type Step struct {
 	TimeoutInMinutes int               `yaml:"timeoutInMinutes"`
 
 	// script / bash / pwsh / powershell steps
-	Script     string `yaml:"script"`
-	Bash       string `yaml:"bash"`
-	Pwsh       string `yaml:"pwsh"`
-	Powershell string `yaml:"powershell"`
+	Script           string `yaml:"script"`
+	Bash             string `yaml:"bash"`
+	Pwsh             string `yaml:"pwsh"`
+	Powershell       string `yaml:"powershell"`
+	WorkingDirectory string `yaml:"workingDirectory"`
 
 	// task step
 	Task   string                 `yaml:"task"`

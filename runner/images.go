@@ -18,11 +18,6 @@ func IsDockerAvailable() bool {
 	return exec.CommandContext(ctx, "docker", "info").Run() == nil
 }
 
-// ImageExistsLocally returns true if the image is already present in the local Docker cache.
-func ImageExistsLocally(image string) bool {
-	return exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", image).Run() == nil
-}
-
 // ResolveImage maps an Azure vmImage to a local Docker image.
 // ubuntu-latest and ubuntu-22.04 resolve to the stepthrough-agent image which
 // mirrors the Azure hosted-agent tool set. Returns ("", false) for unsupported platforms.

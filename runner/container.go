@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const workspacePath = "/workspace"
@@ -84,12 +85,34 @@ func Start(ctx context.Context, name, image, hostWorkDir string, pipelineVars ma
 		return nil, fmt.Errorf("docker run: %s: %w", strings.TrimSpace(string(out)), err)
 	}
 
+	if err := c.waitUntilRunning(ctx); err != nil {
+		exec.Command("docker", "rm", "-f", name).Run() //nolint
+		return nil, fmt.Errorf("container did not reach running state: %w", err)
+	}
+
 	// Bootstrap: ensure base tools are present (no-op on agent image).
 	// Mark /workspace safe so go build's VCS stamping doesn't fail when the
 	// directory is owned by a different UID than the container user.
 	_, _ = c.execScript(ctx, bootstrapScript, nil, io.Discard)
 
 	return c, nil
+}
+
+// waitUntilRunning polls docker inspect until the container is running, with a 30s cap.
+func (c *Container) waitUntilRunning(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		out, err := exec.CommandContext(ctx, "docker", "inspect", "--format", "{{.State.Running}}", c.name).Output()
+		if err == nil && strings.TrimSpace(string(out)) == "true" {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // ExecScript runs a bash script inside the container, streaming each output line to outputCh.

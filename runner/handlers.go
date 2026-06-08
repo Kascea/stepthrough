@@ -38,14 +38,22 @@ func (scriptHandler) Supports(step *pipeline.Step) bool {
 	return step.Type() == pipeline.StepTypeScript
 }
 func (scriptHandler) Resolve(step *pipeline.Step) (string, bool) {
-	return expandAzureVariables(step.Script), true
+	return withWorkingDir(step, expandAzureVariables(step.Script)), true
 }
 
 type bashHandler struct{}
 
 func (bashHandler) Supports(step *pipeline.Step) bool { return step.Type() == pipeline.StepTypeBash }
 func (bashHandler) Resolve(step *pipeline.Step) (string, bool) {
-	return expandAzureVariables(step.Bash), true
+	return withWorkingDir(step, expandAzureVariables(step.Bash)), true
+}
+
+func withWorkingDir(step *pipeline.Step, script string) string {
+	if step.WorkingDirectory == "" {
+		return script
+	}
+	dir := expandAzureVariables(step.WorkingDirectory)
+	return fmt.Sprintf("cd %s\n%s", shellValue(dir), script)
 }
 
 type pwshHandler struct{}
@@ -99,9 +107,10 @@ func (taskHandler) Resolve(step *pipeline.Step) (string, bool) {
 	if !ok {
 		return fmt.Sprintf(`echo "[task] %s - not supported locally"; exit 1`, step.Task), true
 	}
-	return definition.Adapter.Resolve(taskContext{
+	script, ok := definition.Adapter.Resolve(taskContext{
 		Step:       step,
 		Definition: definition,
 		Inputs:     definition.ResolveInputs(step.Inputs),
 	})
+	return withWorkingDir(step, script), ok
 }

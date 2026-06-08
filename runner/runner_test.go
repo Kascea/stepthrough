@@ -187,11 +187,97 @@ func TestResolveStep_TaskGoTool(t *testing.T) {
 	if !strings.Contains(script, "go.dev/dl") {
 		t.Errorf("GoTool script should download from go.dev, got: %q", script)
 	}
-	if !strings.Contains(script, "/usr/local/bin/go") {
-		t.Errorf("GoTool script should make go available to later steps, got: %q", script)
-	}
 	if !strings.Contains(script, "go version") {
 		t.Errorf("GoTool script should verify Go installation, got: %q", script)
+	}
+}
+
+func TestResolveStep_TaskGo(t *testing.T) {
+	s := step(t, "- task: Go@0\n  inputs:\n    command: build\n    arguments: '-o ./out ./...'")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("Go@0 should be supported")
+	}
+	if !strings.Contains(script, "go build") {
+		t.Errorf("Go@0 build script should invoke 'go build', got: %q", script)
+	}
+	if !strings.Contains(script, "./out") {
+		t.Errorf("Go@0 build script should include arguments, got: %q", script)
+	}
+}
+
+func TestResolveStep_TaskGoCustomCommand(t *testing.T) {
+	s := step(t, "- task: Go@0\n  inputs:\n    command: custom\n    customCommand: vet\n    arguments: './...'")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("Go@0 custom command should be supported")
+	}
+	if !strings.Contains(script, "go vet") {
+		t.Errorf("Go@0 custom script should run 'go vet', got: %q", script)
+	}
+}
+
+func TestResolveStep_WorkingDirectoryScript(t *testing.T) {
+	s := step(t, "- script: go test ./...\n  workingDirectory: '/workspace/backend'")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("script with workingDirectory should be supported")
+	}
+	if !strings.HasPrefix(script, "cd ") {
+		t.Errorf("script should start with cd, got: %q", script)
+	}
+	if !strings.Contains(script, "/workspace/backend") {
+		t.Errorf("script should cd to workingDirectory, got: %q", script)
+	}
+	if !strings.Contains(script, "go test ./...") {
+		t.Errorf("script body should follow the cd, got: %q", script)
+	}
+}
+
+func TestResolveStep_WorkingDirectoryBash(t *testing.T) {
+	s := step(t, "- bash: go test ./...\n  workingDirectory: '/workspace/backend'")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("bash with workingDirectory should be supported")
+	}
+	if !strings.Contains(script, "cd ") || !strings.Contains(script, "/workspace/backend") {
+		t.Errorf("bash should cd to workingDirectory, got: %q", script)
+	}
+}
+
+func TestResolveStep_WorkingDirectoryTask(t *testing.T) {
+	s := step(t, "- task: Go@0\n  inputs:\n    command: test\n    arguments: './...'\n  workingDirectory: '/workspace/backend'")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("task with workingDirectory should be supported")
+	}
+	if !strings.Contains(script, "cd ") || !strings.Contains(script, "/workspace/backend") {
+		t.Errorf("task should cd to workingDirectory, got: %q", script)
+	}
+}
+
+func TestResolveStep_WorkingDirectoryExpandsAzureVariable(t *testing.T) {
+	s := step(t, "- script: go test ./...\n  workingDirectory: '$(System.DefaultWorkingDirectory)/backend'")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("script with Azure variable workingDirectory should be supported")
+	}
+	if strings.Contains(script, "$(System.DefaultWorkingDirectory)") {
+		t.Errorf("workingDirectory should expand Azure variable syntax, got: %q", script)
+	}
+	if !strings.Contains(script, "${SYSTEM_DEFAULTWORKINGDIRECTORY}") {
+		t.Errorf("workingDirectory should expand to shell env ref, got: %q", script)
+	}
+}
+
+func TestResolveStep_NoWorkingDirectoryNoCD(t *testing.T) {
+	s := step(t, "- script: echo hello")
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("script without workingDirectory should be supported")
+	}
+	if strings.HasPrefix(script, "cd ") {
+		t.Errorf("script without workingDirectory should not prepend cd, got: %q", script)
 	}
 }
 
@@ -217,6 +303,40 @@ func TestResolveStep_TaskDotNetCoreCLI(t *testing.T) {
 	}
 	if !strings.Contains(script, "dotnet") {
 		t.Errorf("DotNetCoreCLI script should invoke dotnet, got: %q", script)
+	}
+}
+
+func TestResolveStep_TaskDotNetCoreCLI_TestMultiProject(t *testing.T) {
+	// MSBuild's VSTest target only accepts one project; dotnet test with a glob
+	// and nobuild:true must loop over each project individually.
+	yml := "- task: DotNetCoreCLI@2\n  inputs:\n    command: test\n    projects: 'test/**/*.csproj'\n    nobuild: 'true'\n    arguments: '--logger trx'"
+	s := step(t, yml)
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("DotNetCoreCLI@2 test command should be supported")
+	}
+	if !strings.Contains(script, "for proj in") {
+		t.Errorf("test command with glob projects must loop per-project, got: %q", script)
+	}
+	if !strings.Contains(script, "--no-build") {
+		t.Errorf("nobuild:true must emit --no-build flag, got: %q", script)
+	}
+}
+
+func TestResolveStep_TaskDotNetCoreCLI_ToolInstallAlreadyInstalled(t *testing.T) {
+	// `dotnet tool install` exits 1 when already installed; locally we re-run
+	// against the same container so the adapter must fall back to `tool update`.
+	yml := "- task: DotNetCoreCLI@2\n  inputs:\n    command: custom\n    custom: tool\n    arguments: 'install --tool-path . dotnet-reportgenerator-globaltool'"
+	s := step(t, yml)
+	script, ok := runner.ResolveStep(s)
+	if !ok {
+		t.Fatal("DotNetCoreCLI@2 custom tool install should be supported")
+	}
+	if !strings.Contains(script, "dotnet tool install") {
+		t.Errorf("script should attempt install first, got: %q", script)
+	}
+	if !strings.Contains(script, "dotnet tool update") {
+		t.Errorf("script should fall back to update when already installed, got: %q", script)
 	}
 }
 
